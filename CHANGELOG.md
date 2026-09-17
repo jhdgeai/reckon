@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.2.1
+
+The rest of 1.2.0.
+
+- **`reckon status`: where both limits stand now**, from every source that has a reading, each
+  with its source, its age and its reset time where the source has one. A reading older than its
+  own window is named and not shown. See [the usage meter](docs/USAGE.md).
+- **A warning at 80 per cent** of either limit, in words, with when the readings project it to
+  reach 100. No weekly projection from readings either side of 13 September 2026.
+- **A status line** (`ledger/statusline.py`) that shows both percentages in Claude Code and keeps
+  each reading with its reset time, for Claude Code in a terminal. It is off until you add it to
+  your Claude Code settings, and it has not yet been seen running live. The Claude desktop app does
+  not run status lines; there, paste the usage page with `reckon usage --paste`.
+- **`reckon report` ends with the last seven days**: Claude Code's measured cost beside the account
+  meter for the same days, with the sentence that the measured cost is a floor.
+- The repository moved to github.com/jhdgeai/reckon when its owner's account was renamed.
+  GitHub redirects the old address.
+
 ## 1.2.0
 
 - **`reckon usage`: the account's own usage meter.** It reads the five-hour and weekly percentages

@@ -73,3 +73,16 @@ def run_paste(text=None, file=None, taken_at=None, account=None, observations=No
     if as_json:
         argv.append("--json")
     return usage_paste.main(argv)
+
+
+def run_status(as_json=False, source=None, archive=None, copies=None, observations=None,
+               statusline=None):
+    """reckon status (R5, R6): every source's newest reading, and the 80% warning."""
+    usage_status = _ledger("usage_status")
+    argv = ["--json"] if as_json else []
+    for flag, value in (("--source", source), ("--archive-path", archive),
+                        ("--copies", copies),
+                        ("--observations", observations), ("--statusline", statusline)):
+        if value:
+            argv += [flag, value]
+    return usage_status.main(argv)

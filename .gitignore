@@ -13,5 +13,8 @@ store/refs.json
 ledger/plan-usage-observations.jsonl
 ledger/plan-usage/
 
+# Written by the status line (ledger/statusline.py) when you turn it on.
+ledger/plan-usage-statusline.jsonl
+
 # Your own task files, as docs/QUICKSTART.md suggests.
 my-tasks/

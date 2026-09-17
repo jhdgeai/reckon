@@ -129,5 +129,58 @@ class TestEmptyStore(unittest.TestCase):
         self.assertIn("sample", out.getvalue().lower())
 
 
+class TestTheMeterBesideMeasuredCost(unittest.TestCase):
+    """R8 of RECKON-1.2-SPEC.md: the account meter for the same period beside
+    Claude Code's measured cost, with the floor sentence."""
+
+    NOW = __import__("datetime").datetime(2026, 9, 17, 12, 0,
+                                          tzinfo=__import__("datetime").timezone.utc)
+    RUNS = [{"task_ref": None, "cost_usd": 4.0, "started_at": "2026-09-16T10:00:00Z"},
+            {"task_ref": None, "cost_usd": 6.0, "started_at": "2026-09-15T10:00:00.5Z"},
+            {"task_ref": None, "cost_usd": 99.0, "started_at": "2026-09-01T10:00:00Z"},
+            {"task_ref": None, "cost_usd": 1.0}]
+
+    def report_on(self, meter, sample=False):
+        out = io.StringIO()
+        with mock.patch.object(report, "_load_live", return_value=({}, self.RUNS)):
+            report.run(out=out, now=self.NOW, meter=meter, sample=sample)
+        return out.getvalue()
+
+    def test_a_week_shows_both_and_the_floor_sentence(self):
+        meter = {"sources": [{"source": "desktop app's file", "account": "account-2",
+                              "coverage_percent": 60,
+                              "figures": {"five_hour": {"readings": 40, "highest": 91,
+                                                        "first": 3, "last": 20},
+                                          "seven_day": {"readings": 40, "highest": 49,
+                                                        "first": 10, "last": 49}}}],
+                 "spans_weekly_break": False}
+        text = self.report_on(meter)
+        self.assertIn("The last 7 days, 10 September to 17 September 2026:", text)
+        self.assertIn("Claude Code, measured: 2 session(s), $10.00 at list rates.", text)
+        self.assertIn("desktop app's file, account-2, covering 60% of the period", text)
+        self.assertIn("seven-day  highest 49%, from 10% to 49% across 40 reading(s)", text)
+        self.assertIn("This register sees Claude Code only", text)
+        self.assertIn("floor", text)
+        self.assertNotIn("13 September", text)
+
+    def test_a_store_with_no_readings_says_there_are_none(self):
+        text = self.report_on({"sources": [], "spans_weekly_break": False})
+        self.assertIn("no readings for this period, from any source", text)
+        self.assertIn("This register sees Claude Code only", text)
+
+    def test_a_period_across_the_weekly_change_says_so(self):
+        text = self.report_on({"sources": [], "spans_weekly_break": True})
+        self.assertIn("The weekly limit changed on 13 September 2026", text)
+
+    def test_a_meter_that_cannot_be_read_does_not_stop_the_report(self):
+        out = io.StringIO()
+        with mock.patch.object(report, "_load_live", return_value=({}, self.RUNS)), \
+                mock.patch.object(report, "_ledger", side_effect=ImportError("gone")):
+            rc = report.run(out=out, now=self.NOW)
+        self.assertEqual(rc, 0)
+        self.assertIn("The account meter: not read (ImportError: gone)", out.getvalue())
+        self.assertIn("Runs recorded: 4", out.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

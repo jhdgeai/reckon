@@ -18,9 +18,9 @@ from reckon import cli, install_check  # noqa: E402
 
 
 class TestHelpListsEverySubcommand(unittest.TestCase):
-    def test_help_names_estimate_gate_record_report_and_usage(self):
+    def test_help_names_estimate_gate_record_report_usage_and_status(self):
         text = cli.build_parser().format_help()
-        for name in ("estimate", "gate", "record", "report", "usage"):
+        for name in ("estimate", "gate", "record", "report", "usage", "status"):
             self.assertIn(name, text)
 
 
@@ -111,6 +111,24 @@ class TestDispatch(unittest.TestCase):
             rc = cli.main(["usage", "--archive", "--dry-run"])
         self.assertEqual(rc, 0)
         run_archive.assert_called_once_with(dry_run=True, source=None, archive=None)
+
+    def test_status_goes_to_the_status_reader(self):
+        """R5 and R6 of RECKON-1.2-SPEC.md."""
+        with mock.patch.object(cli.usage_mod, "run_status", return_value=0) as run_status:
+            rc = cli.main(["status", "--json"])
+        self.assertEqual(rc, 0)
+        run_status.assert_called_once_with(as_json=True, source=None, archive=None,
+                                           copies=None, observations=None, statusline=None)
+
+    def test_status_runs_end_to_end_on_empty_sources(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp, \
+                contextlib.redirect_stdout(io.StringIO()) as printed:
+            missing = str(Path(tmp) / "absent")
+            rc = cli.main(["status", "--source", missing, "--archive-path", missing,
+                           "--copies", missing, "--observations", missing, "--statusline", missing])
+        self.assertEqual(rc, 0)
+        self.assertIn("no reading from any source", printed.getvalue())
 
     def test_no_command_prints_help_and_returns_nonzero(self):
         printed = io.StringIO()

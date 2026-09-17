@@ -1,4 +1,4 @@
-# The usage meter: `reckon usage`
+# The usage meter: `reckon usage` and `reckon status`
 
 New in 1.2.0. **This is an addition to Reckon, not the reason it exists.** Reckon is for sizing and
 gating a piece of work before it starts, for what each session cost, for whether the estimates were
@@ -78,6 +78,79 @@ Read from the paste:
 
 `--json` gives either one in a form a program can read.
 
+## Where the limits stand now: `reckon status`
+
+New in 1.2.1. One answer to "how much of each limit is left", from every source that has a reading:
+the desktop file, saved pastes, and the status line below. Each figure names its source, its age
+and its reset time where that source has one. Captured on the owner's Mac on 17 September 2026:
+
+```
+$ reckon status
+Five-hour limit
+   20%  desktop app's file, account-2: taken 2026-09-17 08:58 UTC, 6 min ago, reset time not in this source
+Seven-day limit
+   49%  desktop app's file, account-2: taken 2026-09-17 08:58 UTC, 6 min ago, reset time not in this source
+
+Cross-check: 4% of the observed seven-day ceiling, from 7 refusal(s), computed 2026-09-17T09:03 -- ...
+```
+
+- **Where two sources disagree, both are shown.** Nothing is averaged.
+- **A reading older than its own window is named and not shown as a percentage**: a five-hour
+  figure more than five hours old, a weekly one more than seven days old, or one whose reset time
+  has passed. It describes a window that has ended.
+- **The split by product** is shown when a paste from the last seven days has one.
+- **The cross-check underneath** is Reckon's older estimate, from the points where requests were
+  refused. It is kept to show when the two disagree; it is a shape, not a gauge.
+
+### The warning at 80 per cent
+
+At 80 per cent of either limit, `reckon status` starts with a line in words:
+
+```
+WARNING: the five-hour limit is at 80% (desktop app's file). At the rate of these readings it
+reaches 100% on Thursday 17 September at about 14:00 UTC (a straight line through 9 readings
+since 2026-09-17 12:00 UTC).
+```
+
+The projection is a straight line through one source's readings since the percentage last fell,
+for one account. With one reading, or readings that are not rising, it warns without a projection.
+**For the weekly limit it gives no projection through a known change to that limit**, and says why:
+readings either side of a change are percentages of two different limits. The one change Reckon
+knows is the end of 13 September 2026, Pacific time, when the weekly limit changed for every Pro,
+Max, Team and seat-based Enterprise plan.
+
+## The status line
+
+**For Claude Code in a terminal.** Claude Code's documentation says it runs a status-line command
+after each message and hands it the account's five-hour and weekly percentages with their reset
+times, for subscribers, after the first reply. That makes it the one automatic source with reset
+times. `ledger/statusline.py` prints one short line for the bar, such as
+`5h 20% (resets 15:00) · 7d 49%`, and keeps the reading for `reckon status`. To turn it on, add
+this to `~/.claude/settings.json`, with the path to your downloaded folder:
+
+```
+"statusLine": {"type": "command",
+               "command": "python3 '/path/to/reckon/ledger/statusline.py'"}
+```
+
+It writes a reading when the figures change or fifteen minutes have passed, not after every
+message. If it cannot read its input it prints a short line and writes nothing. Removing the setting
+loses the reset times and nothing else.
+
+**What has been tested, and what has not.** The script is tested against the input that
+documentation describes, with reset times given either as a number of seconds or as a date. It has
+not yet been seen running in a live terminal session. On 17 September 2026 the Claude desktop app's
+Code tab loaded the same setting and did not run the command at all, so **in the desktop app, use
+`reckon usage --paste` instead**: copy the usage page and paste it whole. It gives the same two
+percentages and reset times, when you choose to take them.
+
+## In the report
+
+`reckon report` ends with the last seven days: Claude Code's measured cost beside the meter for the
+same days, per source and account, with how much of the period the desktop file covers. Reckon sees
+Claude Code only, and chat in the app, on the web and on a phone uses the same limits, so the
+measured cost is a floor and the meter is the whole account.
+
 ## What it will not do
 
 - **It does not turn a percentage into money.** The meter is not a bill, and it is not Reckon's
@@ -89,7 +162,7 @@ Read from the paste:
 - **It does not join weekly percentages across 13 September 2026.** The weekly limit changed that
   day, so a seven-day percentage from before it and one from after are two scales, and the output
   says so.
-- **It makes no network calls.** Both sources are files already on your computer.
+- **It makes no network calls.** Every source is a file already on your computer.
 
 ## Where it writes
 
@@ -97,6 +170,7 @@ Read from the paste:
 |---|---|---|
 | The archive of the desktop file | `~/Library/Application Support/claude-ledger/plan-usage/` | Only with `--archive`. Outside the downloaded folder, so it is not in `git status` |
 | Saved pastes | `ledger/plan-usage-observations.jsonl` in the downloaded folder, or `--observations` | Only after a yes, or with `--yes`. Appended to, one line per paste; a later paste does not replace an earlier one |
+| Status-line readings | `ledger/plan-usage-statusline.jsonl` in the downloaded folder | Only once the status line is turned on. Appended to |
 | Hand-taken copies of the desktop file | `ledger/plan-usage/`, if you make one | Read, not written |
 
-The last two are listed in `.gitignore`.
+The last three are listed in `.gitignore`. `reckon status` and `reckon report` write nothing.

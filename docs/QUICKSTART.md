@@ -14,7 +14,7 @@ python.org.
 Then, on macOS, in Terminal:
 
 ```sh
-git clone https://github.com/hyperhodge/reckon.git
+git clone https://github.com/jhdgeai/reckon.git
 cd reckon
 python3 -m venv .venv
 source .venv/bin/activate

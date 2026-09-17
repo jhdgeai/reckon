@@ -1,6 +1,6 @@
 # Reckon
 
-[![tests](https://github.com/hyperhodge/reckon/actions/workflows/tests.yml/badge.svg)](https://github.com/hyperhodge/reckon/actions/workflows/tests.yml)
+[![tests](https://github.com/jhdgeai/reckon/actions/workflows/tests.yml/badge.svg)](https://github.com/jhdgeai/reckon/actions/workflows/tests.yml)
 
 **Reckon creates a log of all the work you do in Claude Code (the AI coding assistant) and estimates
 its token cost before it starts.**
@@ -16,7 +16,7 @@ On macOS, in Terminal. Run `python3 --version` first: Reckon needs Python 3.9 or
 install was tested on.
 
 ```sh
-git clone https://github.com/hyperhodge/reckon.git
+git clone https://github.com/jhdgeai/reckon.git
 cd reckon
 python3 -m venv .venv
 source .venv/bin/activate
@@ -25,7 +25,7 @@ pip install -e .
 ```
 
 That downloads Reckon, makes a Python environment for it inside the folder, and installs the one
-command, `reckon`, over `estimate`, `gate`, `record` and `report`. The pip upgrade line is needed on
+command, `reckon`, over `estimate`, `gate`, `record`, `report`, `usage` and `status`. The pip upgrade line is needed on
 the Python 3.9 that comes with macOS, whose pip is too old to install a folder like this one.
 Until the environment is active macOS has `python3` and `pip3` but no `python` or `pip`; inside it,
 both work. In a new Terminal window, run `source .venv/bin/activate` from the `reckon` folder again
@@ -65,8 +65,10 @@ it touched, whether it is an AI system and in what role, who approved it, and wh
   as you type in it.
 - **The estimator's ranges are wide.** The top of a typical range was about ten times the bottom, so
   its predictions are not yet ready to rely on.
-- **Headroom against the usage limits is inferred** from the points where requests were refused, not
-  read from the account.
+- **The estimator and the gate still infer headroom** from the points where requests were refused.
+  From 1.2.0 `reckon usage` and `reckon status` show the account's own usage meter, but they read
+  the copy the Claude desktop app keeps on this machine, not the account itself, and the gate does not
+  use it.
 - **Not isolated from the network, in use.** Reckon itself makes no network calls: no telemetry, no
   uploads, no account, nothing is sent anywhere by this code. It is normally driven through Claude
   Code, which is a remote service. A session that reads your records in order to update them puts
@@ -86,11 +88,11 @@ it touched, whether it is an AI system and in what role, who approved it, and wh
 
 | Folder | What it does |
 |---|---|
-| `reckon/` | The one command, over the four modules below: `reckon estimate`, `reckon gate`, `reckon record`, `reckon report`, and from 1.2.0 `reckon usage`, the account's own usage meter. Each subcommand calls the existing module's own function; no logic is copied into it. |
+| `reckon/` | The one command, over the four modules below: `reckon estimate`, `reckon gate`, `reckon record`, `reckon report`, and from 1.2.0 `reckon usage` and `reckon status`, the account's own usage meter. Each subcommand calls the existing module's own function; no logic is copied into it. |
 | `store/` | The data model. Projects, Tasks, Runs and Decisions are kept as plain Markdown and JSON files, with no database. Each record gets a permanent reference, and the append-only logs are checked for edits. It also classifies each project -- what tier it sits in, whether it is an AI system, what role you hold, and whether its output reaches a third party -- and requires a recorded consent before an export is written. |
 | `wrapper/` | The cost gate and the launcher. Before a scripted task runs, the gate prices its brief against past costs for that kind of task and answers allow, ask or block. The launcher builds the one command that runs the task. |
 | `estimator/` | Predicts the size of a piece of work before it starts. It reads the proposal, predicts how many assistant messages the work will take, turns that into a cost range using past sessions, and reports how often its past ranges contained the real figure. `model.json` holds the fitted numbers. |
-| `ledger/` | Measures what sessions cost. It reads Claude Code's local transcripts, prices each message's tokens at published list rates from `prices.json`, turns one session into a Run record, and estimates how close usage is to the five-hour and weekly limits. It also reads the usage meter the Claude desktop app keeps, and a pasted copy of the usage page. |
+| `ledger/` | Measures what sessions cost. It reads Claude Code's local transcripts, prices each message's tokens at published list rates from `prices.json`, turns one session into a Run record, and estimates how close usage is to the five-hour and weekly limits. It also reads the usage meter the Claude desktop app keeps, a pasted copy of the usage page, and the reading Claude Code gives a status line, and warns at 80 per cent of a limit. |
 | `sample/` | A small sample of real records, redacted: every person reads `[Approver]` and free text is replaced. `tasks/` holds copies of three of those sample tasks with their state changed to `approved`, so the gate table below is the real gate's own answer rather than a rule about the shipped, unapproved originals. `session/` holds one invented Claude Code session, marked as such, so `reckon record` has something to run on a fresh install. `SAMPLE.md` shows the estimator and the gate working on all of it. |
 | `docs/` | The quickstart, getting started and settings, the data model, and the method. |
 | `writing/` | A sample of findings to date. |
@@ -157,7 +159,7 @@ python -m unittest discover -s ledger/tests
 python -m unittest discover -s reckon/tests
 ```
 
-https://github.com/hyperhodge/reckon/actions runs the same five suites on every push -- that is the badge at the top of
+https://github.com/jhdgeai/reckon/actions runs the same five suites on every push -- that is the badge at the top of
 this page.
 
 These are the tests the authors used while building Reckon. They are by no means exhaustive, and
@@ -171,7 +173,7 @@ your own use may need more; your mileage may vary.
 - [The data model](docs/DATA-MODEL.md) — the records, and the rules that help to maintain their
   integrity.
 - [The method](docs/METHOD.md) — estimate, gate, measure, compare.
-- [The usage meter](docs/USAGE.md) — `reckon usage`: the account's own five-hour and weekly
+- [The usage meter](docs/USAGE.md) — `reckon usage` and `reckon status`: the account's own five-hour and weekly
   percentages, what it reads, and what it will not do.
 - [A sample of findings to date](writing/what-the-register-measured.md)
 

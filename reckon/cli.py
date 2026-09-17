@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """reckon: one command over the estimator, the gate, the recorder and the
-store -- estimate, gate, record, report. Each subcommand is a thin wrapper:
+store -- estimate, gate, record, report, usage and status. Each subcommand is a thin wrapper:
 it builds argv for the module that already does the work and calls its
 main(), or calls its functions directly for report. No calculation is copied
 here (RECKON-1.1-SPEC.md decision 4). See docs/METHOD.md.
@@ -88,6 +88,17 @@ def build_parser():
                          help="report gaps longer than this (default 60)")
     p_usage.add_argument("--json", action="store_true", help="machine-readable output")
 
+    p_status = sub.add_parser(
+        "status", help="where both usage limits stand now, from every source, with a "
+                       "warning at 80 per cent")
+    p_status.add_argument("--source", help="the desktop usage file (read-only)")
+    p_status.add_argument("--archive-path", dest="archive_path",
+                          help="Reckon's own archive of the meter")
+    p_status.add_argument("--copies", help="folder of hand-taken copies to merge in")
+    p_status.add_argument("--observations", help="pasted readings of the usage page")
+    p_status.add_argument("--statusline", help="readings kept by the status line")
+    p_status.add_argument("--json", action="store_true", help="machine-readable output")
+
     return parser
 
 
@@ -149,6 +160,12 @@ def main(argv=None):
         return usage_mod.run_file(as_json=args.json, source=args.source,
                                   archive=args.archive_path, copies=args.copies,
                                   gap_minutes=args.gap_minutes)
+
+    if args.command == "status":
+        return usage_mod.run_status(as_json=args.json, source=args.source,
+                                    archive=args.archive_path, copies=args.copies,
+                                    observations=args.observations,
+                                    statusline=args.statusline)
 
     parser.print_help()
     return 1
