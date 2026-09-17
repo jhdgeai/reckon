@@ -350,22 +350,6 @@ class Cli(unittest.TestCase):
         self.assertEqual(records[0]["gate_action"], "ask")
         self.assertEqual(records[0]["task_ref"], "P-0001-T03")
 
-    def test_the_recorded_opt_in_redacts_under_presentation_unchanged(self):
-        """The record reuses store.py's override shape, so governance.py's
-        existing redactor covers it without being told about it. Presentation
-        mode is the export's, not the screen's (RI-08), and the free text a
-        person wrote about a spend is what it drops."""
-        sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "store"))
-        import governance  # noqa: E402
-
-        fix = self.opted_in()
-        self.run_main(env=self.API_ENV, fix=fix)
-        record = self.decisions(fix)[0]
-        presented = governance._redact_decision(record)
-        self.assertEqual(presented["override"]["by"], "Ada")
-        self.assertNotEqual(presented["override"]["reason"], record["override"]["reason"])
-        self.assertNotIn("one-off reproducibility check", json.dumps(presented))
-
     def test_either_spelling_of_the_project_reference_is_recorded(self):
         """tasks/ writes `project_ref: P-0001`; the hand-written briefs write
         `project: P-0001 (P2P Register)`. Both, and neither, must survive --

@@ -63,6 +63,9 @@ def run(source=None, session=None, root=None, out=None):
     for record in report["superseded"]:
         print(f"corrected  {record['ref']}  ${record['from_cost_usd']:.2f} -> "
               f"${record['to_cost_usd']:.2f}  ({', '.join(record['changed'])})", file=out)
+    if report.get("backfilled"):
+        print(f"backfilled {len(report['backfilled'])}  (session records added to runs "
+              f"written before they existed; new records, nothing edited)", file=out)
     print(f"unchanged  {len(report['unchanged'])}", file=out)
 
     by_file = {}

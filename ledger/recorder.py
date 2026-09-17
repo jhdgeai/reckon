@@ -38,11 +38,13 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import aggregate  # noqa: E402  -- sibling module, parsing and pricing live there
+import sessions  # noqa: E402  -- task link, active time and ending (spec-core.md item 3)
 
 RUN_TASKS_PATH = HERE / "run-tasks.json"
 OUT_PATH = HERE / "runs.json"
 WRAPPER_RUNS_DIR = HERE.parent / "wrapper" / "runs"
 GATE_PATH = HERE.parent / "wrapper" / "gate.json"
+DECISIONS_DIR = HERE.parent / "decisions"
 
 # Tool uses that state a file was written. This is the whole of output
 # discovery: if a tool is not here, its writes are not claimed as Outputs.
@@ -450,7 +452,7 @@ def link_drift(link, cost_usd, messages):
 
 
 def build_run(session_id, slot, prices, rails, links=None, stat=stat_output,
-              claimed=None):
+              claimed=None, decisions=(), settings=None):
     records, paths = slot["records"], slot["paths"]
     ref = run_ref(session_id)
     stamps = _timestamps(records)
@@ -534,6 +536,19 @@ def build_run(session_id, slot, prices, rails, links=None, stat=stat_output,
     run["link_drift_usd"] = drift
     run["link_drifted"] = drifted
     run["link_drift_basis"] = drift_basis
+
+    settings = settings or {}
+    session = sessions.session_record(
+        records, started_at=started, assistant_messages=priced["assistant_messages"],
+        decisions=decisions, hand_link=link,
+        idle_gap_minutes=settings.get("idle_gap_minutes", sessions.DEFAULT_IDLE_GAP_MINUTES),
+        ceiling_messages=settings.get("ceiling_messages"))
+    run["account"], run["account_basis"] = sessions.account_for(
+        records, settings.get("account_labels") or {}, started,
+        (rails or {}).get("_second_account_dated"))
+    if session["task_link_method"] != "hand":
+        run["task_link_basis"] = "; ".join(session["task_link_notes"])
+    run.update(session)
     return run, outputs
 
 
@@ -546,7 +561,9 @@ def load_run_tasks(path=RUN_TASKS_PATH):
     session was doing, so the link has to come from somewhere that does. Two
     sources, both records: the launcher's own run record, and this file, which
     is filled in by hand the way rails.json rules are -- dated, reasoned, and
-    never guessed from prompt text.
+    never guessed from prompt text. The one line read from a prompt is the
+    `register-task:` marker, in sessions.py, by the owner's §3.3 decision; this file
+    is the hand-written fallback beneath it.
     """
     if not path.exists():
         return {}
@@ -711,17 +728,51 @@ def write_priors(priors, path=GATE_PATH, now=None):
 
 # ------------------------------------------------------------------ main ----
 
-def build(source, prices, rails, links, stat=stat_output):
-    sessions, parse_errors = group_by_session(aggregate.iter_transcripts(source))
+def load_session_settings(path=GATE_PATH):
+    """The idle threshold and the message ceiling, read from wrapper/gate.json so a
+    ceiling the owner moves moves the ending rule with it (§3.4). Never in code."""
+    settings = {"idle_gap_minutes": sessions.DEFAULT_IDLE_GAP_MINUTES, "ceiling_messages": None}
+    if Path(path).exists():
+        try:
+            gate = json.loads(Path(path).read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return settings
+        settings["idle_gap_minutes"] = gate.get("session_idle_gap_minutes",
+                                                settings["idle_gap_minutes"])
+        settings["ceiling_messages"] = gate.get("session_ceiling_assistant_messages")
+    return settings
+
+
+def load_decisions(directory=DECISIONS_DIR):
+    """The Board's SessionStarted and SessionStoodDown records, read as data.
+    A line that does not parse is skipped here; store.py --check names it."""
+    records = []
+    for path in sorted(Path(directory).glob("*.jsonl")):
+        for line in path.read_text(encoding="utf-8").splitlines():
+            try:
+                record = json.loads(line)
+            except ValueError:
+                continue
+            if record.get("kind") in ("SessionStarted", "SessionStoodDown"):
+                records.append(record)
+    return records
+
+
+def build(source, prices, rails, links, stat=stat_output, decisions=(), settings=None):
+    sessions_, parse_errors = group_by_session(aggregate.iter_transcripts(source))
     runs, outputs = [], []
     # One message.id ledger for the whole pass. The sort is load-bearing: the
     # earliest-starting session claims a message, so a resume-fork is charged
     # only for what it added. See usage_and_cost's `claimed`.
     claimed = {}
-    for session_id in sorted(sessions,
-                             key=lambda s: (_timestamps(sessions[s]["records"]) or [""])[0]):
-        run, run_outputs = build_run(session_id, sessions[session_id], prices,
-                                     rails, links, stat=stat, claimed=claimed)
+    settings = dict(settings or {})
+    settings["account_labels"] = sessions.account_labels(
+        slot["records"] for slot in sessions_.values())
+    for session_id in sorted(sessions_,
+                             key=lambda s: (_timestamps(sessions_[s]["records"]) or [""])[0]):
+        run, run_outputs = build_run(session_id, sessions_[session_id], prices,
+                                     rails, links, stat=stat, claimed=claimed,
+                                     decisions=decisions, settings=settings)
         runs.append(run)
         outputs.extend(run_outputs)
     return runs, outputs, parse_errors
@@ -760,7 +811,9 @@ def main(argv=None):
         print(f"ERROR: no transcript directory at {source}", file=sys.stderr)
         return 2
 
-    runs, outputs, parse_errors = build(source, prices, rails, links)
+    runs, outputs, parse_errors = build(source, prices, rails, links,
+                                        decisions=load_decisions(),
+                                        settings=load_session_settings())
 
     if args.session:
         run = find_run(runs, args.session)
@@ -804,6 +857,8 @@ def main(argv=None):
         "coverage": {
             "runs": len(runs),
             "runs_with_task_ref": sum(1 for r in runs if r["task_ref"]),
+            "task_link_methods": dict(Counter(r["task_link_method"] or "none" for r in runs)),
+            "endings": dict(Counter(r["ended_how"] for r in runs)),
             "runs_with_outputs": sum(1 for r in runs if r["outputs"]),
             "outputs_missing_at_record_time": sum(1 for o in outputs if o["exists"] is False),
             "bash_writes_not_claimed_as_outputs":

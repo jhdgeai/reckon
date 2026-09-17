@@ -504,19 +504,34 @@ def estimate(text: str, model: dict, apply_realisation: bool = True) -> dict:
 
     apply_realisation is False only while the realisation factor is being measured, which is
     the one place it would be circular.
+
+    P-0001-T72: THE TOTAL IS PRICED ONCE, ON THE WHOLE PROPOSAL. It used to be priced by
+    calling predict_turns on each split-out piece and summing. The model was fitted on whole
+    ledger labels, where "items" counts how many clauses THAT WHOLE SENTENCE has -- but a
+    single already-split fragment almost never splits again, so its own "items" feature came
+    out as 1 every time, and every fragment was priced at the model's bare intercept (about
+    30 turns). The total then grew with the number of commas and "and"s in the wording, not
+    with the size of the work: the same work written as one sentence or split into five
+    clauses could price five times apart (see ledger/preflight-ledger.md, 16 September, the
+    P-0001-T68 / P-0001-T64 row -- "35 to 186 messages... Re-estimated in four words: 12 to
+    66 messages... the same work, a narrower range"). Predicting once on the whole text uses
+    the same "items" feature the model was trained against, so splitting the sentence
+    differently no longer changes the total. The split is kept for the on-screen breakdown
+    only, divided across the pieces by their share of the words -- it no longer drives the
+    total, so a session cannot change the price by choosing how many clauses to write.
     """
     items = split_items(text)
-    per_item = []
-    for item in items:
-        turns = predict_turns(item, model)
-        per_item.append({"item": item, "turns_p50": turns, "features": features(item)})
+    total_turns = predict_turns(text, model)
 
-    total_turns = sum(i["turns_p50"] for i in per_item)
-    # Doing several items in one proposal shares the reading, the orientation and the close,
-    # so the whole is less than the sum of its parts. The discount is the same log-sublinearity
-    # the turn model already carries, applied once across items rather than twice.
-    if len(per_item) > 1:
-        total_turns *= 1.0 / (1.0 + 0.06 * math.log(len(per_item)))
+    per_item = []
+    weights = []
+    for item in items:
+        f = features(item)
+        per_item.append({"item": item, "features": f})
+        weights.append(max(f["words"], 1))
+    weight_total = float(sum(weights)) or 1.0
+    for entry, weight in zip(per_item, weights):
+        entry["turns_p50"] = total_turns * (weight / weight_total)
 
     res = model["turn_model"]["loo_log_residual_quantiles"]
     turns_low = total_turns * math.exp(res["0.1"])

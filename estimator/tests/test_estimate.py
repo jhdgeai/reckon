@@ -100,6 +100,54 @@ class TestEstimate(unittest.TestCase):
         cooked = E.estimate("Build a thing", self.model)
         self.assertGreater(cooked["cost_usd"]["p50"], raw["cost_usd"]["p50"])
 
+    # P-0001-T72. ledger/preflight-ledger.md's 16 September entry for P-0001-T68 / P-0001-T64
+    # session 2 records the bug directly: "Said out loud before the first file: 35 to 186
+    # messages, $7 to $80, middle $25. He called it too wide. Re-estimated in four words: 12
+    # to 66 messages, $2.50 to $25, middle $8 -- the same work, a narrower range, because the
+    # estimator splits a sentence at its commas and 'and's and prices each piece at 30 turns."
+    #
+    # SAME_WORK_MANY_CLAUSES is that row's own label column, verbatim. SAME_WORK_ONE_CLAUSE
+    # states the identical facts -- the Board checked for his answer, nothing published, and
+    # R7 was built covering the session records, the backfill and the account split -- as one
+    # sentence instead of five comma-separated pieces. Nothing about the work changes between
+    # them, only the punctuation.
+    SAME_WORK_MANY_CLAUSES = (
+        "Session 2 of each -- the Board checked for his answer on the publish wording (none, "
+        "nothing published), then R7 of Reckon 1.2.0 built: the session records, backfill, "
+        "the account split on his mid-session instruction"
+    )
+    SAME_WORK_ONE_CLAUSE = (
+        "Session 2 of each checked the Board for his answer on the publish wording and built "
+        "R7 of Reckon 1.2.0 covering the session records the backfill and the account split "
+        "from his mid-session instruction"
+    )
+
+    def test_the_same_work_prices_close_regardless_of_how_many_clauses_describe_it(self):
+        # Before the fix this failed outright: the comma-heavy phrasing priced at 5.27x the
+        # one-sentence phrasing of the identical work (P-0001-T72's reproduction case, taken
+        # from the ledger) -- because every split-out fragment was independently priced at
+        # the model's bare intercept (~30 turns), so the total grew roughly with the number
+        # of commas rather than the size of the work.
+        #
+        # The fix prices the whole proposal once, the way the model was trained, so that
+        # unbounded growth is gone. What remains is the model's own fitted (and, per its own
+        # backtest note, weak) belief that a wording naming more distinct clauses names
+        # somewhat more work -- a single coefficient applied once, not compounded once per
+        # fragment. Tightening that further means re-fitting the model, which is out of
+        # scope for a pricing-heuristic bug fix (P-0001-T72's brief). 2.5x is comfortably
+        # above the ~2.1x this pair now shows and comfortably below the 5.27x it replaced.
+        many = E.estimate(self.SAME_WORK_MANY_CLAUSES, self.model)
+        one = E.estimate(self.SAME_WORK_ONE_CLAUSE, self.model)
+        ratio = many["cost_usd"]["p50"] / one["cost_usd"]["p50"]
+        self.assertLess(
+            max(ratio, 1.0 / ratio), 2.5,
+            f"same work priced {ratio:.2f}x apart depending only on how many clauses "
+            f"the sentence was split into: many-clause p50 ${many['cost_usd']['p50']:.2f}, "
+            f"one-clause p50 ${one['cost_usd']['p50']:.2f}")
+        # And the ranges should overlap, not sit apart from each other.
+        self.assertLessEqual(many["cost_usd"]["low"], one["cost_usd"]["high"])
+        self.assertLessEqual(one["cost_usd"]["low"], many["cost_usd"]["high"])
+
 
 TELL_TALE_PATH = Path(__file__).resolve().parents[2] / "package" / "tell-tale-words.json"
 

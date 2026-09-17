@@ -1073,6 +1073,12 @@ def set_invocation(fields, text, root=ROOT, by=None, at=None):
     ref = fields.get("ref")
     if not ref:
         raise StoreError("An invocation needs a task ref to belong to.")
+    # spec-core.md §3.3 A: the Recorder links a session to its task by this one
+    # line in its first message. It was carried by habit and a handoff on
+    # 16 September went out without it, so the writer adds it.
+    marker = f"register-task: {ref}"
+    if not re.search(rf"^{re.escape(marker)}[ \t]*$", text, re.MULTILINE):
+        text = f"{marker}\n\n{text}"
     path = invocation_path_for(ref, root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text + "\n", encoding="utf-8")
@@ -1418,6 +1424,12 @@ def current_runs(records):
 RUN_FACTS = ("cost_usd", "usage", "started_at", "ended_at", "status",
              "stop_reason", "outputs", "commits", "task_ref", "model")
 
+# spec-core.md §3.2, from Reckon 1.2.0. A record written before these existed
+# gains them as a NEW record reported as backfill (§3.5), never by an edit.
+SESSION_FACTS = ("task_link_method", "ended_how", "ended_how_basis", "active_minutes",
+                 "wall_minutes", "idle_gap_minutes", "assistant_messages", "censored",
+                 "account", "account_basis")
+
 
 def run_from_ledger(record, ref, aliases, now=None):
     """One store Run from one ledger/runs.json Run.
@@ -1452,11 +1464,21 @@ def run_from_ledger(record, ref, aliases, now=None):
         "recorded_from": "ledger/runs.json, written by ledger/recorder.py",
         "cost_basis": record.get("cost_basis"),
         "supersedes": None,
+        **{fact: record.get(fact) for fact in SESSION_FACTS},
+        "task_link_detail": record.get("task_link_detail"),
     }
 
 
 def differs(old, new):
-    return [fact for fact in RUN_FACTS if old.get(fact) != new.get(fact)]
+    return [fact for fact in RUN_FACTS + SESSION_FACTS if old.get(fact) != new.get(fact)]
+
+
+def is_backfill(old, changed):
+    """True when the older record predates session records and every change is
+    one of them -- including a task_ref the marker or a Board start now supplies.
+    A change of cost, usage or time on the same record is a correction, not this."""
+    return (bool(changed) and "task_link_method" not in old
+            and all(fact in SESSION_FACTS or fact == "task_ref" for fact in changed))
 
 
 def ingest_runs(ledger_runs, register, existing, now=None):
@@ -1468,7 +1490,7 @@ def ingest_runs(ledger_runs, register, existing, now=None):
     now = now or utc_now()
     view = current_runs(existing)
     by_session = {record["claude_session_id"]: record for record in view.values()}
-    appended, report = [], {"new": [], "superseded": [], "unchanged": []}
+    appended, report = [], {"new": [], "superseded": [], "backfilled": [], "unchanged": []}
 
     for record in ledger_runs:
         session = record["claude_session_id"]
@@ -1487,10 +1509,15 @@ def ingest_runs(ledger_runs, register, existing, now=None):
         if not changed:
             report["unchanged"].append(ref)
             continue
+        backfill = is_backfill(previous, changed)
         built["supersedes"] = {"recorded_at": previous["recorded_at"],
                                "changed": changed,
-                               "previous_cost_usd": previous.get("cost_usd")}
+                               "previous_cost_usd": previous.get("cost_usd"),
+                               "backfill": backfill}
         appended.append(built)
+        if backfill:
+            report["backfilled"].append({"ref": ref, "changed": changed})
+            continue
         report["superseded"].append({"ref": ref, "changed": changed,
                                      "from_cost_usd": previous.get("cost_usd"),
                                      "to_cost_usd": built["cost_usd"]})
@@ -1790,7 +1817,7 @@ def export_manifest(payload, presentation_mode=False, audit=None, destination=No
         warnings.append(
             f"{total} disclosive value(s) ship IN THE CLEAR across "
             f"{len(inventory)} field(s). §8.5: paths can be disclosive even when "
-            f"contents are not. Re-run through governance.py --present to redact them.")
+            f"contents are not. This export is NOT redacted.")
     if presentation_mode and audit and not audit.get("clean", True):
         warnings.append(
             "PRESENTATION MODE FAILED ITS OWN AUDIT: "
@@ -2312,6 +2339,8 @@ def main(argv=None, out=None):
         for record in report["superseded"]:
             say(f"supersedes {record['ref']}  ${record['from_cost_usd']:.2f} -> "
                 f"${record['to_cost_usd']:.2f}  ({', '.join(record['changed'])})")
+        if report["backfilled"]:
+            say(f"backfilled {len(report['backfilled'])}  (session records added as new records)")
         say(f"unchanged  {len(report['unchanged'])}")
         if args.dry_run:
             say("Dry run. Nothing was written.")

@@ -10,7 +10,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import install_check, record as record_mod, report as report_mod
+from . import install_check, record as record_mod, report as report_mod, usage as usage_mod
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -57,6 +57,36 @@ def build_parser():
         "report", help="a read-only summary, including which tasks ran over estimate")
     p_report.add_argument("--sample", action="store_true",
                           help="read the sample shipped with the package instead of your store")
+
+    p_usage = sub.add_parser(
+        "usage", help="the account's own usage meter, per account, with its gaps")
+    p_usage.add_argument("--paste", action="store_true",
+                         help="read a pasted copy of the usage page in Claude's settings, "
+                              "for when the desktop app's newest sample is stale. Paste the "
+                              "whole panel; it is never a field at a time")
+    p_usage.add_argument("--file", help="with --paste, read the paste from a file")
+    p_usage.add_argument("--taken-at", dest="taken_at",
+                         help="with --paste, when the page was read (ISO 8601). The page "
+                              "gives clock times with no dates, so a paste needs this")
+    p_usage.add_argument("--account", help="with --paste, account-1 / account-2 where known")
+    p_usage.add_argument("--observations", help="with --paste, where observations are appended")
+    p_usage.add_argument("--yes", action="store_true",
+                         help="with --paste, save without asking. Without it, what was read "
+                              "is shown and a yes is waited for")
+    p_usage.add_argument("--archive", action="store_true",
+                         help="copy the desktop app's newest samples into Reckon's own "
+                              "archive, which keeps them after the app drops them (it keeps "
+                              "about thirty days). Nothing runs this on a schedule unless "
+                              "you set one up")
+    p_usage.add_argument("--dry-run", action="store_true",
+                         help="with --archive, report and write nothing")
+    p_usage.add_argument("--source", help="the desktop usage file (read-only)")
+    p_usage.add_argument("--archive-path", dest="archive_path",
+                         help="Reckon's own archive of the meter")
+    p_usage.add_argument("--copies", help="folder of hand-taken copies to merge in")
+    p_usage.add_argument("--gap-minutes", dest="gap_minutes", type=int,
+                         help="report gaps longer than this (default 60)")
+    p_usage.add_argument("--json", action="store_true", help="machine-readable output")
 
     return parser
 
@@ -107,6 +137,18 @@ def main(argv=None):
 
     if args.command == "report":
         return report_mod.run(sample=args.sample)
+
+    if args.command == "usage":
+        if args.paste:
+            return usage_mod.run_paste(
+                file=args.file, taken_at=args.taken_at, account=args.account,
+                observations=args.observations, assume_yes=args.yes, as_json=args.json)
+        if args.archive:
+            return usage_mod.run_archive(dry_run=args.dry_run, source=args.source,
+                                         archive=args.archive_path)
+        return usage_mod.run_file(as_json=args.json, source=args.source,
+                                  archive=args.archive_path, copies=args.copies,
+                                  gap_minutes=args.gap_minutes)
 
     parser.print_help()
     return 1

@@ -41,15 +41,21 @@ state, a gate overridden, a session started or stood down, an export consented t
 4. **Stage gates refuse.** Moving a record forward into a stage it owes fields for is refused, and
    the refusal names every missing field. An override needs a name and a reason, and is itself a
    Decision.
-5. **A value that could identify anyone lives in a named field**, so presentation mode can redact
-   it. `store/governance.py` redacts every disclosive field, replaces every person with
-   `[Approver]`, and audits its own output: an export where anything survives is refused.
-6. **Nothing is shared until the names check passes.** `store/names_check.py` looks for every form
-   of every name on a private list, kept outside the repository, and plants every name in test text
-   first, so a check that has stopped matching cannot pass silently.
+5. **A value that could identify anyone lives in a named field.** `store.DISCLOSIVE_FIELDS` names
+   them, so an export can count what it is about to carry and say so. **Reckon does not redact.**
+   The manifest for every export states how many identifying values are in it, and writing one
+   needs a name and a reason recorded as a Decision.
+
+   Redaction was deliberately left out of this package rather than half-shipped. Doing it safely
+   takes two halves: replace each identifying field, then check the result against a list of the
+   client and company names that must not appear. The second half cannot work for anyone but its
+   author, because the list is personal and lives outside the repository, and a check with nothing
+   to look for finds nothing and reports it exactly as a pass. A redactor with no check behind it
+   would produce clean-looking output that nobody had verified, out of a snapshot that is not
+   maintained, and that is worse than no redactor at all.
 
 ## The sample
 
 `sample/register-sample.json` holds one Project, three Tasks, their Runs and the Decisions about
-them, exactly as presentation mode redacts them. Free text reads `[P-0001-T08 · brief]` and similar;
+them, with every identifying value replaced before publication. Free text reads `[P-0001-T08 · brief]` and similar;
 the structure, states, dates, token counts and costs are real.

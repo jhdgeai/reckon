@@ -26,7 +26,6 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 sys.path.insert(0, str(ROOT / "store"))
 
-import governance       # noqa: E402
 import store as S       # noqa: E402
 
 
@@ -175,25 +174,6 @@ class Disclosive(unittest.TestCase):
 
     def test_it_is_a_disclosive_field(self):
         self.assertIn("decision_owed", S.DISCLOSIVE_FIELDS)
-
-    def test_the_redactor_replaces_it(self):
-        payload = {"projects": {}, "tasks": {"P-0001-T19": task_fields(
-            decision_owed="Decide whether to keep billing Acme Ltd monthly.")}}
-        self.assertNotIn("Acme", json.dumps(governance.present(payload)))
-
-    def test_an_unredacted_one_fails_the_audit(self):
-        """The audit has to be able to fail, or it is decoration."""
-        payload = {"projects": {}, "tasks": {"P-0001-T19": task_fields(
-            decision_owed="Decide whether to keep billing Acme Ltd monthly.")}}
-        audit = governance.audit_presentation(payload, {"projects": {}, "tasks":
-                                                        dict(payload["tasks"])})
-        self.assertFalse(audit["clean"])
-
-    def test_the_audit_passes_on_the_redacted_payload(self):
-        payload = {"projects": {}, "tasks": {"P-0001-T19": task_fields(
-            decision_owed="Decide whether to keep billing Acme Ltd monthly.")}}
-        audit = governance.audit_presentation(payload, governance.present(payload))
-        self.assertTrue(audit["clean"], audit["leaked"])
 
     def test_it_is_counted_in_the_export_manifest(self):
         payload = {"projects": {}, "tasks": {"P-0001-T19": task_fields(

@@ -36,7 +36,6 @@ run uses it. Nothing has to be set up before the first run.
 | `read_only_roots` | `store/purge.json` | `~/.claude/projects` | Folders Reckon reads and does not write to. | Edit the list. |
 | `candidate_roots` | `store/purge.json` | A transcript archive folder, and working files named by Run records | Where purge looks for candidates. | Edit the paths. |
 | The fitted model | `estimator/model.json` | Fitted to the history this package was built from | What the estimator predicts from. | Derived: run `python estimator/estimate.py --fit`. Do not edit by hand. |
-| `LIST_PATH` | `store/names_check.py` | A private file in your user folder, outside the repository | The list of client and personal names the names check looks for. The check refuses a list that other users can read. | Edit the path in the code, or pass `--list`. |
 
 The session ceiling is a rule a session follows. The gate stands in front of scripted tasks only; it
 does not stop a conversation.

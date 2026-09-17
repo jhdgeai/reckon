@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for reckon/cli.py: each subcommand reaches the right module with the
 right arguments (RECKON-1.1-SPEC.md R1's acceptance test), reckon --help
-lists all four subcommands, and the install check gates every one of them."""
+lists every subcommand, and the install check gates all of them.
+
+`usage` joined them in 1.2.0 (R1, R2 and R4)."""
 
 import contextlib
 import io
@@ -15,10 +17,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from reckon import cli, install_check  # noqa: E402
 
 
-class TestHelpListsFourSubcommands(unittest.TestCase):
-    def test_help_names_estimate_gate_record_and_report(self):
+class TestHelpListsEverySubcommand(unittest.TestCase):
+    def test_help_names_estimate_gate_record_report_and_usage(self):
         text = cli.build_parser().format_help()
-        for name in ("estimate", "gate", "record", "report"):
+        for name in ("estimate", "gate", "record", "report", "usage"):
             self.assertIn(name, text)
 
 
@@ -83,6 +85,32 @@ class TestDispatch(unittest.TestCase):
             rc = cli.main(["report", "--sample"])
         self.assertEqual(rc, 0)
         report_run.assert_called_once_with(sample=True)
+
+    def test_usage_reads_the_desktop_file_by_default(self):
+        with mock.patch.object(cli.usage_mod, "run_file", return_value=0) as run_file:
+            rc = cli.main(["usage", "--json"])
+        self.assertEqual(rc, 0)
+        run_file.assert_called_once_with(as_json=True, source=None, archive=None,
+                                         copies=None, gap_minutes=None)
+
+    def test_usage_paste_goes_to_the_paste_reader(self):
+        """R4 of RECKON-1.2-SPEC.md. The whole panel, from a file, so the
+        permission dialog shows one short line rather than a wall of pasted
+        text -- CLAUDE.md's rule about an ask he cannot read."""
+        with mock.patch.object(cli.usage_mod, "run_paste", return_value=0) as run_paste:
+            rc = cli.main(["usage", "--paste", "--file", "panel.txt",
+                           "--taken-at", "2026-09-16T05:20:00Z", "--yes"])
+        self.assertEqual(rc, 0)
+        run_paste.assert_called_once_with(file="panel.txt",
+                                          taken_at="2026-09-16T05:20:00Z",
+                                          account=None, observations=None,
+                                          assume_yes=True, as_json=False)
+
+    def test_usage_archive_goes_to_the_archiver(self):
+        with mock.patch.object(cli.usage_mod, "run_archive", return_value=0) as run_archive:
+            rc = cli.main(["usage", "--archive", "--dry-run"])
+        self.assertEqual(rc, 0)
+        run_archive.assert_called_once_with(dry_run=True, source=None, archive=None)
 
     def test_no_command_prints_help_and_returns_nonzero(self):
         printed = io.StringIO()

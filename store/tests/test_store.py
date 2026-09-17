@@ -565,6 +565,59 @@ class TestAppendOnly(Temp):
 
 # ---------------------------------------------------------------- runs and cost
 
+class TestSessionRecordBackfill(Temp):
+    """spec-core.md §3.5: records written before the session fields existed gain
+    them as new records reported as backfill, and a second pass adds nothing."""
+
+    SESSION_FIELDS = {"task_link_method": "marker", "ended_how": "finished",
+                      "ended_how_basis": "end_turn and an outcome", "active_minutes": 12.5,
+                      "wall_minutes": 40.0, "idle_gap_minutes": 10,
+                      "assistant_messages": 30, "censored": False}
+
+    def old_record(self, reg):
+        first, _ = store.ingest_runs([ledger_run(SESSION_A, "R-aaaaaaaa")], reg, [])
+        for fact in store.SESSION_FACTS + ("task_link_detail",):
+            first[0].pop(fact, None)
+        return first
+
+    def test_backfill_is_a_new_record_reported_as_backfill(self):
+        reg = self.register()
+        existing = self.old_record(reg)
+        run = ledger_run(SESSION_A, "R-aaaaaaaa", task_ref="P-0001-T64", **self.SESSION_FIELDS)
+        appended, report = store.ingest_runs([run], reg, existing)
+        self.assertEqual(len(appended), 1)
+        self.assertTrue(appended[0]["supersedes"]["backfill"])
+        self.assertEqual(len(report["backfilled"]), 1)
+        self.assertEqual(report["superseded"], [])
+        self.assertEqual(appended[0]["ended_how"], "finished")
+
+    def test_backfill_run_twice_produces_no_duplicates(self):
+        reg = self.register()
+        existing = self.old_record(reg)
+        run = ledger_run(SESSION_A, "R-aaaaaaaa", **self.SESSION_FIELDS)
+        appended, _ = store.ingest_runs([run], reg, existing)
+        again, report = store.ingest_runs([run], reg, existing + appended)
+        self.assertEqual(again, [])
+        self.assertEqual(len(report["unchanged"]), 1)
+
+    def test_a_cost_change_alongside_is_a_correction_not_backfill(self):
+        reg = self.register()
+        existing = self.old_record(reg)
+        run = ledger_run(SESSION_A, "R-aaaaaaaa", cost=2.0, **self.SESSION_FIELDS)
+        appended, report = store.ingest_runs([run], reg, existing)
+        self.assertFalse(appended[0]["supersedes"]["backfill"])
+        self.assertEqual(len(report["superseded"]), 1)
+
+    def test_a_later_change_of_ending_is_a_correction(self):
+        reg = self.register()
+        first, _ = store.ingest_runs(
+            [ledger_run(SESSION_A, "R-aaaaaaaa", **dict(self.SESSION_FIELDS, ended_how="unknown"))],
+            reg, [])
+        second, report = store.ingest_runs(
+            [ledger_run(SESSION_A, "R-aaaaaaaa", **self.SESSION_FIELDS)], reg, first)
+        self.assertEqual(report["superseded"][0]["changed"], ["ended_how"])
+
+
 class TestRunsAreCanonicalHere(Temp):
 
     def test_cost_is_copied_from_the_ledger_never_recomputed(self):
@@ -666,10 +719,11 @@ class TestCheckAndExport(Temp):
         self.assertEqual(len(payload["superseded_runs"]), 1)
         self.assertEqual(payload["runs"][0]["cost_usd"], 9.0)
 
-    def test_export_names_the_disclosive_fields_for_presentation_mode(self):
-        """§8.5: paths can be disclosive even when contents are not. An earlier session
-        owns presentation mode; this is the list it needs, so that the store is
-        not designed in a way that makes it impossible."""
+    def test_export_names_the_disclosive_fields(self):
+        """§8.5: paths can be disclosive even when contents are not. The export
+        names the fields that carry an identifying value, so that anything which
+        redacts or counts them has a list rather than a guess, and so that the
+        store is not designed in a way that makes redaction impossible."""
         payload = store.export(store.load_store(self.root), self.seed())
         self.assertIn("directory", payload["disclosive_fields"])
         self.assertIn("output_location", payload["disclosive_fields"])

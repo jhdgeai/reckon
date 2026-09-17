@@ -191,6 +191,17 @@ Tasks more than 10% over their estimate:
   P-0001-T10     estimate $14.00   recorded $30.13   (+115%)
 ```
 
+## `reckon usage`
+
+New in 1.2.0. The account's own five-hour and weekly percentages, read from the file the Claude
+desktop app keeps on a Mac, or from a pasted copy of the usage page in Claude's settings. It
+prints only, unless you save a paste or ask for `--archive`. Its output, what it reads and what
+it will not do are on [the usage meter](USAGE.md) page.
+
+```
+$ reckon usage
+```
+
 ## Your own work
 
 **Record your own sessions.** With no `--source`, `reckon record` reads the transcripts Claude Code
@@ -255,3 +266,4 @@ It answers allow, ask or block, as in the examples above. Nothing runs until you
 - [The data model](DATA-MODEL.md) — the records, and the rules that help to maintain their
   integrity.
 - [The method](METHOD.md) — estimate, gate, measure, compare.
+- [The usage meter](USAGE.md) — `reckon usage`, what it reads and what it will not do.

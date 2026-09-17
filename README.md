@@ -67,16 +67,30 @@ it touched, whether it is an AI system and in what role, who approved it, and wh
   its predictions are not yet ready to rely on.
 - **Headroom against the usage limits is inferred** from the points where requests were refused, not
   read from the account.
+- **Not isolated from the network, in use.** Reckon itself makes no network calls: no telemetry, no
+  uploads, no account, nothing is sent anywhere by this code. It is normally driven through Claude
+  Code, which is a remote service. A session that reads your records in order to update them puts
+  their contents into that session's context, and a record it edits travels both ways. The program
+  is offline; the way you operate it usually is not.
+- **The append-only check is not tamper-proofing.** It holds each file's length and a hash of
+  exactly those bytes, and reports a file whose earlier bytes moved. That catches an accidental
+  edit, a truncation and a half-written line. It does not defend against anything that can also
+  re-take the baseline, including the assistant that writes the records in the first place. It is a
+  smoke alarm, not a lock. The independent witness is your version history, because rewriting that
+  is forbidden by rule.
+- **It does not redact.** See [the data model](docs/DATA-MODEL.md) rule 5 for why that was left out
+  rather than half-built. An export states how many identifying values it carries, and writing one
+  needs a recorded consent.
 
 ## What is in this package
 
 | Folder | What it does |
 |---|---|
-| `reckon/` | The one command, over the four modules below: `reckon estimate`, `reckon gate`, `reckon record`, `reckon report`. Each subcommand calls the existing module's own function; no logic is copied into it. |
-| `store/` | The data model. Projects, Tasks, Runs and Decisions are kept as plain Markdown and JSON files, with no database. Each record gets a permanent reference, and the append-only logs are checked for edits. It also holds presentation mode, which redacts anything identifying before records are shared, and the names check, which stops a file naming a client from being shared. |
+| `reckon/` | The one command, over the four modules below: `reckon estimate`, `reckon gate`, `reckon record`, `reckon report`, and from 1.2.0 `reckon usage`, the account's own usage meter. Each subcommand calls the existing module's own function; no logic is copied into it. |
+| `store/` | The data model. Projects, Tasks, Runs and Decisions are kept as plain Markdown and JSON files, with no database. Each record gets a permanent reference, and the append-only logs are checked for edits. It also classifies each project -- what tier it sits in, whether it is an AI system, what role you hold, and whether its output reaches a third party -- and requires a recorded consent before an export is written. |
 | `wrapper/` | The cost gate and the launcher. Before a scripted task runs, the gate prices its brief against past costs for that kind of task and answers allow, ask or block. The launcher builds the one command that runs the task. |
 | `estimator/` | Predicts the size of a piece of work before it starts. It reads the proposal, predicts how many assistant messages the work will take, turns that into a cost range using past sessions, and reports how often its past ranges contained the real figure. `model.json` holds the fitted numbers. |
-| `ledger/` | Measures what sessions cost. It reads Claude Code's local transcripts, prices each message's tokens at published list rates from `prices.json`, turns one session into a Run record, and estimates how close usage is to the five-hour and weekly limits. |
+| `ledger/` | Measures what sessions cost. It reads Claude Code's local transcripts, prices each message's tokens at published list rates from `prices.json`, turns one session into a Run record, and estimates how close usage is to the five-hour and weekly limits. It also reads the usage meter the Claude desktop app keeps, and a pasted copy of the usage page. |
 | `sample/` | A small sample of real records, redacted: every person reads `[Approver]` and free text is replaced. `tasks/` holds copies of three of those sample tasks with their state changed to `approved`, so the gate table below is the real gate's own answer rather than a rule about the shipped, unapproved originals. `session/` holds one invented Claude Code session, marked as such, so `reckon record` has something to run on a fresh install. `SAMPLE.md` shows the estimator and the gate working on all of it. |
 | `docs/` | The quickstart, getting started and settings, the data model, and the method. |
 | `writing/` | A sample of findings to date. |
@@ -157,6 +171,8 @@ your own use may need more; your mileage may vary.
 - [The data model](docs/DATA-MODEL.md) — the records, and the rules that help to maintain their
   integrity.
 - [The method](docs/METHOD.md) — estimate, gate, measure, compare.
+- [The usage meter](docs/USAGE.md) — `reckon usage`: the account's own five-hour and weekly
+  percentages, what it reads, and what it will not do.
 - [A sample of findings to date](writing/what-the-register-measured.md)
 
 ## Licence

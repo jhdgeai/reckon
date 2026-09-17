@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.2.0
+
+- **`reckon usage`: the account's own usage meter.** It reads the five-hour and weekly percentages
+  from the file the Claude desktop app keeps on a Mac, one block per account, with the gaps where
+  the app was closed and how much of its span the file covers. `--paste` reads a pasted copy of
+  the usage page in Claude's settings, for the reset times and the split by product, and saves it
+  only after a yes. `--archive` keeps the samples after the app drops them. See
+  [the usage meter](docs/USAGE.md).
+- It turns no percentage into money, writes no account identifier down, and does not join weekly
+  percentages across 13 September 2026, when the weekly limit changed.
+- The rest of 1.2.0 (a status line, a `reckon status` command, a warning at 80 per cent, and the
+  report joining the meter to recorded cost) is not in this release.
+
 ## 1.1.1
 
 What a newcomer tripped over, following the 1.1.0 pages on a Mac's own Python 3.9 and its pip:
