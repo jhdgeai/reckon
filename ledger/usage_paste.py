@@ -71,6 +71,61 @@ FORECAST = re.compile(r"\bon track\b|\byou should reach\b|\byou(?:'ll| will) (?:
                       r"|\bwith room to spare\b|\bat this rate\b", re.I)
 NOTICE = re.compile(r"\bpromotion\b|\blimit is now\b|\bhigher than\b|\bchanged on\b", re.I)
 
+# THE CREDITS BLOCK, added 17 September 2026 (P-0001-T19).
+#
+# The 17 September paste of account-1 kept NINE lines verbatim and four of them
+# were the whole credits answer: a monthly credit spend limit of GBP 150.00,
+# 81% of it used, resetting Oct 1, and a current balance of GBP 0.00 with
+# auto-reload off. Every one was legible to a person and none of it reached a
+# field, so the question this register raised on 6 September -- do runs bill to
+# credits -- could not be answered from what the machine had saved.
+#
+# THE LAYOUT PROBLEM, and it is why this is not four more label regexes in the
+# main loop. On that page the money sits on its OWN line and the label that
+# names it can arrive either side of it: the paste has "GBP 150.00" and then
+# "Monthly credit spend limit", while the 16 September panel has "Usage credits"
+# and then "$0". So each label claims the nearest bare-money line that no other
+# label has claimed, preferring the one before it on a tie, and a line no label
+# claims stays unrecognised rather than being attached to the closest guess.
+#
+# `Current balance.Auto-reloadOff` arrives as one run of text with the labels
+# glued together, so labels are matched inside a segment rather than against it.
+SPEND_LIMIT_LABEL = re.compile(r"\b(?:monthly\s+)?credit\s+spend\s+limit\b", re.I)
+BALANCE_LABEL = re.compile(r"\bcurrent\s+balance\b", re.I)
+AUTO_RELOAD = re.compile(r"\bauto[-\s]?reload\s*[:.\u00b7-]?\s*(on|off)?", re.I)
+PERCENT_USED = re.compile(r"(\d{1,3})\s*%\s*used\b", re.I)
+# A money line of its own, with the one trailing word the page sometimes puts
+# on it ("\u00a3121.50 spent"). The real 17 September paste carries that word and
+# the reassembled one did not, which is exactly the difference a real paste
+# was asked for to find. The word is evidence, not noise: "spent" says which
+# of the two things a credits figure is, and the page saying so beats this
+# module inferring it from the presence of a spend limit.
+BARE_MONEY = re.compile(r"^([$\u00a3\u20ac]\s*[\d,]+(?:\.\d{1,2})?)"
+                        r"(?:\s+(spent|used|remaining|left))?$", re.I)
+# How far a label may reach for the figure it names. The page can put the money
+# above the label or below it, but never across the panel: without this, "Usage
+# credits" reached six lines down and claimed the SPEND LIMIT as the balance.
+CLAIM_WINDOW = 2
+# The five-hour limit resets in hours and the week resets on a weekday. The only
+# thing on this page that resets on a calendar date is the credit spend limit,
+# so a reset naming a month belongs to it and to nothing else.
+MONTH = (r"jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec")
+DATED_RESET = re.compile(
+    r"^resets?\s+(?:on\s+)?((?:" + MONTH + r")[a-z]*\.?\s+\d{1,2}"
+    r"|\d{1,2}\s+(?:" + MONTH + r")[a-z]*\.?"
+    r"|\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?)\s*$", re.I)
+# The page's navigation furniture, and only that. Kept out of the unrecognised
+# list so the list keeps meaning what it says: a row this parser has never seen.
+# Deliberately narrow -- "Usage", "All models" and anything else that might one
+# day carry a figure or a scope stay unrecognised and visible, because a row
+# quietly dropped is the one failure this list exists to prevent.
+CHROME = re.compile(r"^(?:learn more\b.*|manage\b.*|upgrade\b.*)$", re.I)
+# "Plan usage limitsPro" -- the heading with the plan name run onto it.
+PLAN_HEADING = re.compile(r"\bplan usage limits\s*"
+                          r"(free|pro|max(?:\s*\d+\s*x)?|team|enterprise)\b", re.I)
+PLAN_BARE_HEADING = re.compile(r"^plan usage limits$", re.I)
+PLAN_WORD = re.compile(r"free|pro|max(?:\s*\d+\s*x)?|team|enterprise", re.I)
+
 
 def _segments(line):
     """A panel line as the one-or-more readings it holds.
@@ -122,6 +177,115 @@ def _reset_text(text):
     return rest or None
 
 
+def _split_glued(segment):
+    """`Current balance.Auto-reloadOff` as its parts. The page glues adjacent
+    labels together when it is copied, so a label is looked for INSIDE a
+    segment; this only exists so the parts can be reported separately."""
+    return [part.strip() for part in re.split(r"[\u00b7|]", segment) if part.strip()]
+
+
+def _read_credits(segments):
+    """The credits block, read as a whole rather than line by line.
+
+    `segments` is every segment of the paste in order. Returns what was read and
+    the set of segment positions it used, so the main loop can skip them and the
+    unrecognised list stays honest.
+
+    Each label claims the nearest bare-money segment that no other label has
+    claimed, preferring the one before it where the distance is equal, because
+    the page puts the figure above its label as often as beside it. A money line
+    no label claims is not attached to anything.
+    """
+    found = {"usage_credits_text": None, "credit_spend_limit_text": None,
+             "credit_spend_limit_percent_used": None,
+             "credit_spend_limit_resets_text": None, "credit_balance_text": None,
+             "credit_spend_this_month_text": None, "auto_reload": None}
+    used = set()
+
+    money_at = {i: BARE_MONEY.match(seg) for i, seg in enumerate(segments)
+                if BARE_MONEY.match(seg)}
+    claimed = set()
+
+    def claim(index):
+        """The nearest unclaimed money segment within reach of `index`.
+
+        Returns the money as the page wrote it and the one qualifying word it
+        carried, if any. Out of reach is None: a label with no figure beside it
+        has no figure, and the line stays unrecognised.
+        """
+        candidates = sorted((abs(i - index), 0 if i < index else 1, i)
+                            for i in money_at
+                            if i not in claimed and abs(i - index) <= CLAIM_WINDOW)
+        if not candidates:
+            return None, None
+        _, _, at = candidates[0]
+        claimed.add(at)
+        used.add(at)
+        found_at = money_at[at]
+        return found_at.group(1).replace(" ", ""), (found_at.group(2) or "").lower()
+
+    # Order matters only in that each label takes its own nearest line first.
+    labels = [(CREDITS, "usage_credits_text"),
+              (SPEND_LIMIT_LABEL, "credit_spend_limit_text"),
+              (BALANCE_LABEL, "credit_balance_text")]
+    region = None
+    for index, segment in enumerate(segments):
+        if SESSION_LABEL.search(segment) or WEEK_LABEL.search(segment):
+            region = "limits"
+        if (CREDITS.search(segment) or SPEND_LIMIT_LABEL.search(segment)
+                or BALANCE_LABEL.search(segment) or AUTO_RELOAD.search(segment)):
+            region = "credits"
+        for part in _split_glued(segment):
+            for pattern, field in labels:
+                if not pattern.search(part) or found[field] is not None:
+                    continue
+                if pattern is CREDITS and TURN_ON.search(part) and not MONEY.search(part):
+                    # "Turn on usage credits" is a button, not a reading.
+                    used.add(index)
+                    continue
+                inline = MONEY.search(part)
+                if inline:
+                    found[field], qualifier = inline.group(0).replace(" ", ""), ""
+                else:
+                    found[field], qualifier = claim(index)
+                if found[field] is not None:
+                    used.add(index)
+                    if field == "usage_credits_text" and qualifier == "spent":
+                        # The page said which of the two it is, so nothing is
+                        # inferred from the presence of a limit.
+                        found["credit_spend_this_month_text"] = found[field]
+            reload_at = AUTO_RELOAD.search(part)
+            if reload_at and found["auto_reload"] is None:
+                # The state can be glued on ("Auto-reloadOff") or sit on the
+                # next segment of its own. Only on/off is read; anything else
+                # is left unrecognised rather than guessed at.
+                state = reload_at.group(1)
+                if not state and index + 1 < len(segments):
+                    following = segments[index + 1].strip()
+                    if following.lower() in ("on", "off"):
+                        state, _ = following, used.add(index + 1)
+                if state:
+                    found["auto_reload"] = state.lower()
+                    used.add(index)
+
+        percent_used = PERCENT_USED.match(segment.strip())
+        if (percent_used and region == "credits"
+                and found["credit_spend_limit_percent_used"] is None):
+            # A bare "81% used" standing in the credits block. The session and
+            # the week write their percentages exactly the same way, so this is
+            # read by which block it is in and by nothing else; a bare
+            # percentage in neither block stays unrecognised.
+            found["credit_spend_limit_percent_used"] = int(percent_used.group(1))
+            used.add(index)
+
+        dated = DATED_RESET.match(segment.strip())
+        if dated and found["credit_spend_limit_resets_text"] is None:
+            found["credit_spend_limit_resets_text"] = dated.group(1)
+            used.add(index)
+
+    return found, used
+
+
 def parse(text, taken_at=None, account=None):
     """The panel, read. Returns a dict in the shape ledger/plan_usage.py reports
     a sample in, plus what only the page carries.
@@ -140,6 +304,14 @@ def parse(text, taken_at=None, account=None):
         "seven_day_percent": None,
         "seven_day_resets_at_text": None,
         "usage_credits_text": None,
+        # The credits block (P-0001-T19). Kept as the page wrote them and never
+        # converted, the same rule the balance has always had.
+        "credit_spend_limit_text": None,
+        "credit_spend_limit_percent_used": None,
+        "credit_spend_limit_resets_text": None,
+        "credit_spend_this_month_text": None,
+        "credit_balance_text": None,
+        "auto_reload": None,
         "product_split_percent": {},
         "forecast": None,
         "notices": [],
@@ -153,11 +325,47 @@ def parse(text, taken_at=None, account=None):
     pending = None            # "five_hour", "seven_day" or "credits"
     in_products = False
 
-    for line in (text or "").splitlines():
+    # The credits block is read first and as a whole, because its labels and
+    # its figures are on separate lines and either can come first (P-0001-T19).
+    # `credit_used` is the positions it consumed, in the same flat numbering the
+    # loop below counts with, so nothing is read twice and nothing it took is
+    # reported as unrecognised.
+    lines = (text or "").splitlines()
+    flat = [segment for line in lines for segment in _segments(line)]
+    credits_found, credit_used = _read_credits(flat)
+    reading.update({key: value for key, value in credits_found.items()
+                    if value is not None})
+
+    position = -1
+    for line in lines:
         recognised = False
         segments = _segments(line)
         headless_products = _product_row_segments(segments)
         for segment in segments:
+            position += 1
+            if position in credit_used:
+                recognised = True
+                continue
+            if CHROME.match(segment.strip()):
+                # The page's own furniture, so the unrecognised list keeps
+                # meaning "a row this parser has never seen".
+                recognised = True
+                continue
+            if PLAN_HEADING.search(segment) and reading["plan"] is None:
+                reading["plan"] = PLAN_HEADING.search(segment).group(1).strip().title()
+                recognised = True
+                continue
+            if PLAN_BARE_HEADING.match(segment.strip()) and reading["plan"] is None:
+                # "Plan usage limits" with the plan name on the line below it,
+                # which is how the real page renders it. The name alone is not
+                # read as a plan anywhere else: it only counts directly under
+                # this heading.
+                following = flat[position + 1].strip() if position + 1 < len(flat) else ""
+                if PLAN_WORD.fullmatch(following):
+                    reading["plan"] = following.title()
+                    credit_used.add(position + 1)   # it was read, so it is not unread
+                recognised = True
+                continue
             if segment in headless_products:
                 row = PRODUCT_ROW.match(segment)
                 reading["product_split_percent"][row.group(1).strip()] = int(row.group(2))
@@ -282,6 +490,21 @@ def _judge(reading):
             reading["notes"].append(
                 "the moment this was taken was not recorded, and the page gives clock times "
                 "with no dates, so the reset times cannot be placed")
+    # WHAT THE CREDITS BLOCK MEANS, said only where the page itself said it.
+    # No percentage becomes money here and no figure is derived from another --
+    # these are statements about which reading is which, which is the thing
+    # P-0001-T19 could not get out of a saved record on 17 September.
+    if reading["credit_spend_limit_text"] and reading["usage_credits_text"]:
+        reading["credit_spend_this_month_text"] = reading["usage_credits_text"]
+        reading["notes"].append(
+            "this page carries a monthly credit spend limit, so the usage-credits figure "
+            "is what has been SPENT this month, not a balance: the balance is its own line")
+    if reading["credit_balance_text"] and reading["auto_reload"] == "off":
+        zero = re.fullmatch(r"[$\u00a3\u20ac]\s*0(?:\.0{1,2})?", reading["credit_balance_text"])
+        reading["notes"].append(
+            "the balance is nothing and auto-reload is off, so this account stops at its "
+            "plan limit rather than spending" if zero else
+            "auto-reload is off, so this balance is not topped up when it runs out")
     if reading["account"] is None:
         reading["notes"].append(
             "the page does not say which account it is; pass the account where it is known")
@@ -305,6 +528,17 @@ def describe(reading):
                f"{_reset(reading['seven_day_resets_at_text'])}")
     if reading["usage_credits_text"]:
         out.append(f"  usage credits, as the page wrote it: {reading['usage_credits_text']}")
+    if reading["credit_spend_limit_text"]:
+        share = ("" if reading["credit_spend_limit_percent_used"] is None
+                 else f", {reading['credit_spend_limit_percent_used']}% of it used")
+        resets = ("" if not reading["credit_spend_limit_resets_text"]
+                  else f", resets {reading['credit_spend_limit_resets_text']}")
+        out.append(f"  monthly credit spend limit: "
+                   f"{reading['credit_spend_limit_text']}{share}{resets}")
+    if reading["credit_balance_text"]:
+        out.append(f"  current balance: {reading['credit_balance_text']}")
+    if reading["auto_reload"]:
+        out.append(f"  auto-reload: {reading['auto_reload']}")
     if reading["product_split_percent"]:
         out.append("  this week by product: " + ", ".join(
             f"{name} {value}%" for name, value in reading["product_split_percent"].items()))
@@ -335,11 +569,23 @@ def _reset(text):
     return f", resets {text}" if text else ", no reset time on the page"
 
 
-def save(reading, path=None):
+def save(reading, path=None, text=None):
     """Append one observation. Never an overwrite: two readings that disagree
-    are both kept and both shown (1.2.0 decision 3)."""
+    are both kept and both shown (1.2.0 decision 3).
+
+    THE PASTE ITSELF IS KEPT, from 17 September (P-0001-T19). Twice now a gap
+    in this parser has been found after the fact and the text it was found in
+    was gone: the 16 September panel had to be REASSEMBLED from two prose
+    records to serve as a test fixture, and the 17 September paste that showed
+    the credits block missing could only be recovered as the nine lines it
+    failed to read. A parser that keeps what it could not understand and throws
+    away what it could cannot be improved against its own history. The page
+    carries percentages and money about one account and names no one.
+    """
     path = Path(path) if path else DEFAULT_OBSERVATIONS
     record = dict(reading)
+    if text is not None:
+        record["paste_text"] = text
     record["recorded_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
@@ -384,7 +630,7 @@ def run(text=None, file=None, taken_at=None, account=None, observations=None,
             print("Nothing saved.", file=out)
             return 0
 
-    path = save(reading, observations)
+    path = save(reading, observations, text=text)
     print(f"\nSaved one observation to {path}", file=out)
     return 0
 

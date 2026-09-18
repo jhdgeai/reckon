@@ -545,7 +545,8 @@ def build_run(session_id, slot, prices, rails, links=None, stat=stat_output,
         ceiling_messages=settings.get("ceiling_messages"))
     run["account"], run["account_basis"] = sessions.account_for(
         records, settings.get("account_labels") or {}, started,
-        (rails or {}).get("_second_account_dated"))
+        (rails or {}).get("_second_account_dated"),
+        desktop=settings.get("desktop_accounts"), ended_at=run.get("ended_at"))
     if session["task_link_method"] != "hand":
         run["task_link_basis"] = "; ".join(session["task_link_notes"])
     run.update(session)
@@ -743,6 +744,20 @@ def load_session_settings(path=GATE_PATH):
     return settings
 
 
+def load_desktop_samples():
+    """The desktop app's usage-history samples, live and archived, for naming the
+    account of a session whose transcript does not. None when they cannot be read:
+    a session then names no account, as it did before, and says so."""
+    try:
+        import plan_usage
+        live, archive, copies = plan_usage.load_config()
+        sources = [live, archive] + (sorted(Path(copies).glob("*.json"))
+                                     if copies and Path(copies).is_dir() else [])
+        return plan_usage.merge(*[plan_usage.read_source(p)["samples"] for p in sources])
+    except Exception:  # noqa: BLE001 -- an unreadable second source is not a failed record
+        return None
+
+
 def load_decisions(directory=DECISIONS_DIR):
     """The Board's SessionStarted and SessionStoodDown records, read as data.
     A line that does not parse is skipped here; store.py --check names it."""
@@ -768,6 +783,12 @@ def build(source, prices, rails, links, stat=stat_output, decisions=(), settings
     settings = dict(settings or {})
     settings["account_labels"] = sessions.account_labels(
         slot["records"] for slot in sessions_.values())
+    if settings.get("desktop_samples") is not None:
+        import plan_usage
+        by_org = sessions.org_labels((slot["records"] for slot in sessions_.values()),
+                                     settings["account_labels"], plan_usage.account_key)
+        settings["desktop_accounts"] = [(sample.get("at"), by_org.get(sample.get("account_key")))
+                                        for sample in settings["desktop_samples"]]
     for session_id in sorted(sessions_,
                              key=lambda s: (_timestamps(sessions_[s]["records"]) or [""])[0]):
         run, run_outputs = build_run(session_id, sessions_[session_id], prices,
@@ -811,9 +832,11 @@ def main(argv=None):
         print(f"ERROR: no transcript directory at {source}", file=sys.stderr)
         return 2
 
+    settings = load_session_settings()
+    settings["desktop_samples"] = load_desktop_samples()
     runs, outputs, parse_errors = build(source, prices, rails, links,
                                         decisions=load_decisions(),
-                                        settings=load_session_settings())
+                                        settings=settings)
 
     if args.session:
         run = find_run(runs, args.session)

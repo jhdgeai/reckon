@@ -15,6 +15,11 @@ The rest of 1.2.0.
   not run status lines; there, paste the usage page with `reckon usage --paste`.
 - **`reckon report` ends with the last seven days**: Claude Code's measured cost beside the account
   meter for the same days, with the sentence that the measured cost is a floor.
+- **The sample has two invented sessions.** `reckon record` writes a session to the store only
+  once a later one has started, so with one sample session a fresh install recorded nothing. The
+  quickstart now shows the first recorded and the second held, and says why.
+- `decisions/`, where `reckon record` keeps the fingerprint of your personal instructions file, is
+  in `.gitignore`, so `git status` stays empty after recording.
 - The repository moved to github.com/jhdgeai/reckon when its owner's account was renamed.
   GitHub redirects the old address.
 

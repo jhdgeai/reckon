@@ -98,7 +98,11 @@
     }
   },
   "redacted_fields": [
+    "account_basis",
+    "applies_to",
     "brief",
+    "decision_basis",
+    "decision_condition",
     "decision_owed",
     "directory",
     "github_repo",
@@ -111,6 +115,7 @@
     "parked_reason",
     "parked_ref",
     "path",
+    "proposition",
     "queued_note",
     "spec_path",
     "transcript_path",
@@ -163,26 +168,37 @@
   "runs": [
     {
       "account": "account-1",
-      "account_basis": "owner account named on the transcript's own lines",
+      "account_basis": "[R-0018 \u00b7 account_basis]",
       "active_minutes": 30.5,
       "aliases": [
         "R-dc721462"
       ],
       "assistant_messages": 96,
-      "censored": true,
+      "censored": false,
+      "claude_app_session": {
+        "app_session_id": "local_4f861a57-9083-4e84-83d0-c4113be55feb",
+        "cwd": "[R-0018 \u00b7 claude_app_session.cwd]",
+        "link": "[R-0018 \u00b7 claude_app_session.link]",
+        "title": "[R-0018 \u00b7 claude_app_session.title]"
+      },
       "claude_session_id": "dc721462-5e88-4f5b-b018-26815e909e79",
       "commits": [],
       "cost_basis": "client-side estimate at list rates, priced by aggregate.py from the transcript. A shadow price, not a bill",
       "cost_usd": 12.553532,
       "ended_at": "2026-09-06T08:48:12.319Z",
-      "ended_how": "stopped_at_ceiling",
-      "ended_how_basis": "no ceiling marker, but 96 assistant messages reached the ceiling of 90 in wrapper/gate.json and the session did not finish",
+      "ended_how": "finished",
+      "ended_how_basis": "last assistant turn ended end_turn and the session ran the measure chain; it was at the message ceiling (96 of 90) when it closed",
       "exit_code": null,
       "idle_gap_minutes": 10,
       "model": "claude-opus-5",
       "outputs": [],
+      "preferences_carried": {
+        "carried": [],
+        "not_visible": "his claude.ai account preferences are held by Anthropic and do not reach this Mac, so no run here can record them",
+        "unknown_because": "no fingerprint was recorded on or before this run started; recording began 2026-09-17T13:27:19Z"
+      },
       "rail": "subscription",
-      "recorded_at": "2026-09-16T08:31:46Z",
+      "recorded_at": "2026-09-17T13:44:41Z",
       "recorded_from": "ledger/runs.json, written by ledger/recorder.py",
       "ref": "R-0018",
       "started_at": "2026-09-06T08:17:44.982Z",
@@ -191,11 +207,12 @@
       "supersedes": {
         "backfill": false,
         "changed": [
-          "account",
-          "account_basis"
+          "ended_how",
+          "ended_how_basis",
+          "censored"
         ],
         "previous_cost_usd": 12.553532,
-        "recorded_at": "2026-09-16T08:31:00Z"
+        "recorded_at": "2026-09-16T08:31:46Z"
       },
       "surface": "code",
       "task_class": "code-task",
@@ -218,20 +235,26 @@
     },
     {
       "account": "account-1",
-      "account_basis": "owner account named on the transcript's own lines",
+      "account_basis": "[R-0019 \u00b7 account_basis]",
       "active_minutes": 12.9,
       "aliases": [
         "R-df225f85"
       ],
       "assistant_messages": 46,
       "censored": false,
+      "claude_app_session": {
+        "app_session_id": "local_b10b5404-b36d-4df9-a519-370beda0c944",
+        "cwd": "[R-0019 \u00b7 claude_app_session.cwd]",
+        "link": "[R-0019 \u00b7 claude_app_session.link]",
+        "title": "[R-0019 \u00b7 claude_app_session.title]"
+      },
       "claude_session_id": "df225f85-fa92-4f5f-bce0-7c79b4d287cd",
       "commits": [],
       "cost_basis": "client-side estimate at list rates, priced by aggregate.py from the transcript. A shadow price, not a bill",
       "cost_usd": 4.3716,
       "ended_at": "2026-09-06T09:13:40.532Z",
-      "ended_how": "unknown",
-      "ended_how_basis": "last assistant turn ended end_turn but the session recorded no outcome, so finishing its work is not shown",
+      "ended_how": "finished",
+      "ended_how_basis": "last assistant turn ended end_turn and the session ran the measure chain",
       "exit_code": null,
       "idle_gap_minutes": 10,
       "model": "claude-opus-5",
@@ -239,8 +262,13 @@
         "O-df225f85-01",
         "O-df225f85-02"
       ],
+      "preferences_carried": {
+        "carried": [],
+        "not_visible": "his claude.ai account preferences are held by Anthropic and do not reach this Mac, so no run here can record them",
+        "unknown_because": "no fingerprint was recorded on or before this run started; recording began 2026-09-17T13:27:19Z"
+      },
       "rail": "subscription",
-      "recorded_at": "2026-09-16T08:31:46Z",
+      "recorded_at": "2026-09-17T13:44:41Z",
       "recorded_from": "ledger/runs.json, written by ledger/recorder.py",
       "ref": "R-0019",
       "started_at": "2026-09-06T08:50:12.024Z",
@@ -249,11 +277,11 @@
       "supersedes": {
         "backfill": false,
         "changed": [
-          "account",
-          "account_basis"
+          "ended_how",
+          "ended_how_basis"
         ],
         "previous_cost_usd": 4.3716,
-        "recorded_at": "2026-09-16T08:31:00Z"
+        "recorded_at": "2026-09-16T08:31:46Z"
       },
       "surface": "code",
       "task_class": "investigation",
@@ -276,26 +304,37 @@
     },
     {
       "account": "account-1",
-      "account_basis": "owner account named on the transcript's own lines",
+      "account_basis": "[R-0022 \u00b7 account_basis]",
       "active_minutes": 27.8,
       "aliases": [
         "R-cfc59582"
       ],
       "assistant_messages": 121,
-      "censored": true,
+      "censored": false,
+      "claude_app_session": {
+        "app_session_id": "local_cb560002-586b-46b4-9138-3e0b87fe7425",
+        "cwd": "[R-0022 \u00b7 claude_app_session.cwd]",
+        "link": "[R-0022 \u00b7 claude_app_session.link]",
+        "title": "[R-0022 \u00b7 claude_app_session.title]"
+      },
       "claude_session_id": "cfc59582-fc49-4192-80d4-31b5c2ec5b39",
       "commits": [],
       "cost_basis": "client-side estimate at list rates, priced by aggregate.py from the transcript. A shadow price, not a bill",
       "cost_usd": 15.656997,
       "ended_at": "2026-09-06T20:03:43.876Z",
-      "ended_how": "stopped_at_ceiling",
-      "ended_how_basis": "no ceiling marker, but 121 assistant messages reached the ceiling of 90 in wrapper/gate.json and the session did not finish",
+      "ended_how": "finished",
+      "ended_how_basis": "last assistant turn ended end_turn and the session ran the measure chain; it was at the message ceiling (121 of 90) when it closed",
       "exit_code": null,
       "idle_gap_minutes": 10,
       "model": "claude-opus-5",
       "outputs": [],
+      "preferences_carried": {
+        "carried": [],
+        "not_visible": "his claude.ai account preferences are held by Anthropic and do not reach this Mac, so no run here can record them",
+        "unknown_because": "no fingerprint was recorded on or before this run started; recording began 2026-09-17T13:27:19Z"
+      },
       "rail": "subscription",
-      "recorded_at": "2026-09-16T08:31:46Z",
+      "recorded_at": "2026-09-17T13:44:41Z",
       "recorded_from": "ledger/runs.json, written by ledger/recorder.py",
       "ref": "R-0022",
       "started_at": "2026-09-06T19:35:58.358Z",
@@ -304,11 +343,12 @@
       "supersedes": {
         "backfill": false,
         "changed": [
-          "account",
-          "account_basis"
+          "ended_how",
+          "ended_how_basis",
+          "censored"
         ],
         "previous_cost_usd": 15.656997,
-        "recorded_at": "2026-09-16T08:31:00Z"
+        "recorded_at": "2026-09-16T08:31:46Z"
       },
       "surface": "code",
       "task_class": "code-task",
@@ -331,26 +371,37 @@
     },
     {
       "account": "account-1",
-      "account_basis": "owner account named on the transcript's own lines",
+      "account_basis": "[R-0023 \u00b7 account_basis]",
       "active_minutes": 34.4,
       "aliases": [
         "R-62e44e8b"
       ],
       "assistant_messages": 115,
-      "censored": true,
+      "censored": false,
+      "claude_app_session": {
+        "app_session_id": "local_a739aba8-1557-436c-909f-45baf8399511",
+        "cwd": "[R-0023 \u00b7 claude_app_session.cwd]",
+        "link": "[R-0023 \u00b7 claude_app_session.link]",
+        "title": "[R-0023 \u00b7 claude_app_session.title]"
+      },
       "claude_session_id": "62e44e8b-44fb-45d9-ac47-03a4d62ee4e8",
       "commits": [],
       "cost_basis": "client-side estimate at list rates, priced by aggregate.py from the transcript. A shadow price, not a bill",
       "cost_usd": 14.473978,
       "ended_at": "2026-09-06T20:50:09.241Z",
-      "ended_how": "stopped_at_ceiling",
-      "ended_how_basis": "no ceiling marker, but 115 assistant messages reached the ceiling of 90 in wrapper/gate.json and the session did not finish",
+      "ended_how": "finished",
+      "ended_how_basis": "last assistant turn ended end_turn and the session ran the measure chain; it was at the message ceiling (115 of 90) when it closed",
       "exit_code": null,
       "idle_gap_minutes": 10,
       "model": "claude-opus-5",
       "outputs": [],
+      "preferences_carried": {
+        "carried": [],
+        "not_visible": "his claude.ai account preferences are held by Anthropic and do not reach this Mac, so no run here can record them",
+        "unknown_because": "no fingerprint was recorded on or before this run started; recording began 2026-09-17T13:27:19Z"
+      },
       "rail": "subscription",
-      "recorded_at": "2026-09-16T08:31:46Z",
+      "recorded_at": "2026-09-17T13:44:41Z",
       "recorded_from": "ledger/runs.json, written by ledger/recorder.py",
       "ref": "R-0023",
       "started_at": "2026-09-06T20:04:38.489Z",
@@ -359,11 +410,12 @@
       "supersedes": {
         "backfill": false,
         "changed": [
-          "account",
-          "account_basis"
+          "ended_how",
+          "ended_how_basis",
+          "censored"
         ],
         "previous_cost_usd": 14.473978,
-        "recorded_at": "2026-09-16T08:31:00Z"
+        "recorded_at": "2026-09-16T08:31:46Z"
       },
       "surface": "code",
       "task_class": "code-task",

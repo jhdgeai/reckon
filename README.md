@@ -105,13 +105,13 @@ PROPOSAL
   Add a --json flag to an existing CLI subcommand, with a test.
 
 BROKEN INTO 2 PIECE(S)
-  $  8.14   29.8 turns  Add a --json flag to an existing CLI subcommand
-  $  8.14   29.8 turns  with a test
+  $  8.26   29.9 turns  Add a --json flag to an existing CLI subcommand
+  $  2.75   10.0 turns  with a test
 
 COST, AS A RANGE, NOT A POINT
-  low   $    4.89   (24 turns, 1 session(s))
-  p50   $   16.28   (57 turns, 1 session(s))
-  high  $   52.45   (127 turns, 2 session(s))
+  low   $    3.37   (17 turns, 1 session(s))
+  p50   $   11.01   (40 turns, 1 session(s))
+  high  $   35.03   (89 turns, 1 session(s))
 
 HIT RATE OF THIS KIND OF RANGE: 78%
   21 of 27 leave-one-out predictions contained the actual turn count inside the stated range.

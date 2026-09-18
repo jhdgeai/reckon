@@ -37,6 +37,19 @@ def ledger_run(session, ref, cost=1.0, started="2026-09-01T10:00:00.000Z", **ext
     return record
 
 
+# A session that started after every fixture session ended, so they settle
+# (P-0001-T69). It is itself held, being the newest.
+SETTLER = ledger_run(SESSION_B, "R-bbbbbbbb", started="2026-09-01T12:00:00.000Z",
+                     ended_at="2026-09-01T12:30:00.000Z")
+
+
+def ingest_settled(*args, **kwargs):
+    """Intake with every session treated as settled. The tests that use this
+    are about refs, corrections and backfill, not about the settling rule,
+    which TestSettling covers on its own."""
+    return store.ingest_runs(*args, moving=set(), **kwargs)
+
+
 class Temp(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
@@ -172,13 +185,13 @@ class TestProvisionalRunAlias(Temp):
 
     def test_ingest_keeps_the_provisional_ref_as_an_alias(self):
         reg = self.register()
-        records, _ = store.ingest_runs([ledger_run(SESSION_A, "R-aaaaaaaa")], reg, [])
+        records, _ = ingest_settled([ledger_run(SESSION_A, "R-aaaaaaaa")], reg, [])
         self.assertEqual(records[0]["ref"], "R-0001")
         self.assertEqual(records[0]["aliases"], ["R-aaaaaaaa"])
 
     def test_the_provisional_ref_resolves_to_the_canonical_one(self):
         reg = self.register()
-        store.ingest_runs([ledger_run(SESSION_A, "R-aaaaaaaa")], reg, [])
+        ingest_settled([ledger_run(SESSION_A, "R-aaaaaaaa")], reg, [])
         self.assertEqual(reg.resolve("R-aaaaaaaa"), "R-0001")
         self.assertEqual(reg.resolve("R-0001"), "R-0001")
 
@@ -188,8 +201,8 @@ class TestProvisionalRunAlias(Temp):
 
     def test_re_ingesting_does_not_mint_a_second_ref(self):
         reg = self.register()
-        first, _ = store.ingest_runs([ledger_run(SESSION_A, "R-aaaaaaaa")], reg, [])
-        second, report = store.ingest_runs([ledger_run(SESSION_A, "R-aaaaaaaa")],
+        first, _ = ingest_settled([ledger_run(SESSION_A, "R-aaaaaaaa")], reg, [])
+        second, report = ingest_settled([ledger_run(SESSION_A, "R-aaaaaaaa")],
                                            reg, first)
         self.assertEqual(second, [])
         self.assertEqual(report["unchanged"], ["R-0001"])
@@ -528,9 +541,9 @@ class TestAppendOnly(Temp):
         minutes later once the archive LaunchAgent picked up its tail. Both
         figures survive; the later one is the current view."""
         reg = self.register()
-        first, _ = store.ingest_runs([ledger_run(SESSION_A, "R-aaaaaaaa", cost=4.75)],
+        first, _ = ingest_settled([ledger_run(SESSION_A, "R-aaaaaaaa", cost=4.75)],
                                      reg, [])
-        second, report = store.ingest_runs(
+        second, report = ingest_settled(
             [ledger_run(SESSION_A, "R-aaaaaaaa", cost=5.81)], reg, first)
         self.assertEqual(len(second), 1)
         self.assertEqual(second[0]["supersedes"]["previous_cost_usd"], 4.75)
@@ -575,7 +588,7 @@ class TestSessionRecordBackfill(Temp):
                       "assistant_messages": 30, "censored": False}
 
     def old_record(self, reg):
-        first, _ = store.ingest_runs([ledger_run(SESSION_A, "R-aaaaaaaa")], reg, [])
+        first, _ = ingest_settled([ledger_run(SESSION_A, "R-aaaaaaaa")], reg, [])
         for fact in store.SESSION_FACTS + ("task_link_detail",):
             first[0].pop(fact, None)
         return first
@@ -584,7 +597,7 @@ class TestSessionRecordBackfill(Temp):
         reg = self.register()
         existing = self.old_record(reg)
         run = ledger_run(SESSION_A, "R-aaaaaaaa", task_ref="P-0001-T64", **self.SESSION_FIELDS)
-        appended, report = store.ingest_runs([run], reg, existing)
+        appended, report = ingest_settled([run], reg, existing)
         self.assertEqual(len(appended), 1)
         self.assertTrue(appended[0]["supersedes"]["backfill"])
         self.assertEqual(len(report["backfilled"]), 1)
@@ -595,8 +608,8 @@ class TestSessionRecordBackfill(Temp):
         reg = self.register()
         existing = self.old_record(reg)
         run = ledger_run(SESSION_A, "R-aaaaaaaa", **self.SESSION_FIELDS)
-        appended, _ = store.ingest_runs([run], reg, existing)
-        again, report = store.ingest_runs([run], reg, existing + appended)
+        appended, _ = ingest_settled([run], reg, existing)
+        again, report = ingest_settled([run], reg, existing + appended)
         self.assertEqual(again, [])
         self.assertEqual(len(report["unchanged"]), 1)
 
@@ -604,16 +617,16 @@ class TestSessionRecordBackfill(Temp):
         reg = self.register()
         existing = self.old_record(reg)
         run = ledger_run(SESSION_A, "R-aaaaaaaa", cost=2.0, **self.SESSION_FIELDS)
-        appended, report = store.ingest_runs([run], reg, existing)
+        appended, report = ingest_settled([run], reg, existing)
         self.assertFalse(appended[0]["supersedes"]["backfill"])
         self.assertEqual(len(report["superseded"]), 1)
 
     def test_a_later_change_of_ending_is_a_correction(self):
         reg = self.register()
-        first, _ = store.ingest_runs(
+        first, _ = ingest_settled(
             [ledger_run(SESSION_A, "R-aaaaaaaa", **dict(self.SESSION_FIELDS, ended_how="unknown"))],
             reg, [])
-        second, report = store.ingest_runs(
+        second, report = ingest_settled(
             [ledger_run(SESSION_A, "R-aaaaaaaa", **self.SESSION_FIELDS)], reg, first)
         self.assertEqual(report["superseded"][0]["changed"], ["ended_how"])
 
@@ -624,7 +637,7 @@ class TestRunsAreCanonicalHere(Temp):
         """A third arithmetic would be a third number to reconcile. recorder.py
         already agrees with aggregate.py to $0.000002."""
         reg = self.register()
-        records, _ = store.ingest_runs(
+        records, _ = ingest_settled(
             [ledger_run(SESSION_A, "R-aaaaaaaa", cost=13.930001)], reg, [])
         self.assertEqual(records[0]["cost_usd"], 13.930001)
         self.assertIn("ledger/runs.json", records[0]["recorded_from"])
@@ -671,7 +684,7 @@ class TestCheckAndExport(Temp):
         reg = self.register()
         reg.adopt("P-0001", "reg", "project")
         reg.adopt("P-0001-T01", "t", "task")
-        records, _ = store.ingest_runs(
+        records, _ = ingest_settled(
             [ledger_run(SESSION_A, "R-aaaaaaaa", task_ref="P-0001-T01")], reg, [])
         store.append_runs(self.root / "runs" / "2026-09.jsonl", records)
         reg.save()
@@ -762,7 +775,7 @@ class TestCli(Temp):
 
     def test_ingest_writes_the_run_and_the_register(self):
         (self.root / "ledger" / "runs.json").write_text(json.dumps(
-            {"runs": [ledger_run(SESSION_A, "R-aaaaaaaa")]}))
+            {"runs": [ledger_run(SESSION_A, "R-aaaaaaaa"), SETTLER]}))
         code, output = self.run_cli(["--ingest-runs"])
         self.assertEqual(code, 0)
         self.assertIn("new        R-0001", output)
@@ -771,7 +784,7 @@ class TestCli(Temp):
 
     def test_show_accepts_a_provisional_ref(self):
         (self.root / "ledger" / "runs.json").write_text(json.dumps(
-            {"runs": [ledger_run(SESSION_A, "R-aaaaaaaa")]}))
+            {"runs": [ledger_run(SESSION_A, "R-aaaaaaaa"), SETTLER]}))
         self.run_cli(["--ingest-runs"])
         code, output = self.run_cli(["--show", "R-aaaaaaaa"])
         self.assertEqual(code, 0)
@@ -804,7 +817,7 @@ class TestTheLinkCheckedFromBothEnds(Temp):
                             "state": "shipped", "runs": []}, "")
         reg = self.register()
         reg.adopt("P-0001", "reg", "project")
-        records, _ = store.ingest_runs(
+        records, _ = ingest_settled(
             [ledger_run(SESSION_A, "R-aaaaaaaa", task_ref=task_ref_on_run)], reg, [])
         store.append_runs(self.root / "runs" / "2026-09.jsonl", records)
         return reg
@@ -1020,3 +1033,167 @@ class TestTheTransitionCLI(Temp):
         self.assertEqual(code, 0)
         self.assertIn("OVERRIDDEN", text)
         self.assertIn("captured -> scoped", text)
+
+
+# ---------------------------------------------------------------- settling (P-0001-T69)
+
+SESSION_LATER = "cccccccc-0000-0000-0000-000000000003"
+
+
+class TestSettling(Temp):
+    """A session goes into the permanent log once a later session has started,
+    and not before -- so an unattended `reckon record` over a live conversation
+    writes nothing permanent per pass. Never an idle timeout: the owner ruled that
+    out on 16 September 2026."""
+
+    def live(self, cost, ended="2026-09-01T11:00:00.000Z"):
+        return ledger_run(SESSION_A, "R-aaaaaaaa", cost=cost, ended_at=ended)
+
+    def later(self, started="2026-09-01T12:00:00Z"):
+        return ledger_run(SESSION_LATER, "R-cccccccc", started=started,
+                          ended_at="2026-09-01T12:30:00.000Z")
+
+    def test_the_only_session_is_held_and_nothing_is_written(self):
+        records, report = store.ingest_runs([self.live(1.0)], self.register(), [])
+        self.assertEqual(records, [])
+        self.assertEqual(report["held"][0]["session"], SESSION_A)
+        self.assertEqual(report["new"], [])
+
+    def test_a_held_session_gets_no_ref(self):
+        reg = self.register()
+        store.ingest_runs([self.live(1.0)], reg, [])
+        self.assertIsNone(reg._find("run", SESSION_A))
+
+    def test_passes_over_a_live_session_write_no_corrections(self):
+        """The hazard itself: an earlier record exists (written by hand before
+        the rule, say) and the live session keeps growing. No pass appends."""
+        reg = self.register()
+        existing, _ = ingest_settled([self.live(1.0)], reg, [])
+        for cost, ended in ((2.0, "2026-09-01T11:10:00Z"), (3.0, "2026-09-01T11:20:00Z")):
+            records, report = store.ingest_runs([self.live(cost, ended)], reg, existing)
+            self.assertEqual(records, [])
+            self.assertEqual(report["superseded"], [])
+            self.assertEqual(report["held"][0]["ref"], "R-0001")
+
+    def test_it_settles_once_when_a_later_session_starts(self):
+        reg = self.register()
+        records, report = store.ingest_runs([self.live(4.0), self.later()], reg, [])
+        self.assertEqual([r["claude_session_id"] for r in records], [SESSION_A])
+        self.assertEqual(records[0]["cost_usd"], 4.0)
+        self.assertEqual(report["held"][0]["session"], SESSION_LATER)
+        again, report = store.ingest_runs([self.live(4.0), self.later()], reg, records)
+        self.assertEqual(again, [])
+        self.assertEqual(report["unchanged"], ["R-0001"])
+
+    def test_a_session_started_while_this_one_was_going_does_not_settle_it(self):
+        """Two folders at once: the earlier session is still moving."""
+        overlap = self.later(started="2026-09-01T10:30:00Z")
+        records, report = store.ingest_runs([self.live(1.0), overlap], self.register(), [])
+        self.assertEqual(records, [])
+        self.assertEqual({h["session"] for h in report["held"]}, {SESSION_A, SESSION_LATER})
+
+    def test_silence_is_not_an_ending(self):
+        """However long ago the last message was, no later session means held."""
+        run = self.live(1.0, ended="2020-01-01T00:00:00Z")
+        run["started_at"] = "2019-12-31T23:00:00Z"
+        records, report = store.ingest_runs([run], self.register(), [],
+                                            now="2026-09-17T12:00:00Z")
+        self.assertEqual(records, [])
+        self.assertEqual(len(report["held"]), 1)
+
+    def test_timestamps_with_and_without_milliseconds_compare_as_times(self):
+        live = self.live(1.0, ended="2026-09-01T11:00:00.500Z")
+        later = self.later(started="2026-09-01T11:00:00Z")
+        self.assertEqual(store.still_moving([live, later]), {SESSION_A, SESSION_LATER})
+
+    def test_a_run_with_no_end_time_is_not_held(self):
+        run = self.live(1.0)
+        run["ended_at"] = None
+        self.assertEqual(store.still_moving([run]), set())
+
+
+class PreferencesCarriedIntoARun(unittest.TestCase):
+    """P-0001-T53 / RQ-26. The owner, 4 September 2026: "hopefully that is implicit
+    but let's make it explicit." A fingerprint, never the content, and a run
+    that cannot know says so rather than leaving the field null."""
+
+    def _sources(self, text):
+        import tempfile
+        self.tmp = getattr(self, "tmp", None) or tempfile.TemporaryDirectory()
+        path = Path(self.tmp.name) / "CLAUDE.md"
+        path.write_text(text)
+        return [("personal instructions", path)]
+
+    def test_the_first_look_records_a_fingerprint_and_never_the_content(self):
+        records = store.observe_preferences([], self._sources("be brief"))
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["kind"], "PreferencesObserved")
+        self.assertEqual(len(records[0]["sha256"]), 64)
+        self.assertNotIn("be brief", json.dumps(records[0]))
+
+    def test_an_unchanged_file_records_nothing(self):
+        sources = self._sources("be brief")
+        first = store.observe_preferences([], sources)
+        self.assertEqual(store.observe_preferences(first, sources), [])
+
+    def test_a_changed_file_records_again(self):
+        sources = self._sources("be brief")
+        first = store.observe_preferences([], sources)
+        sources = self._sources("be brief, and no em-dashes")
+        self.assertEqual(len(store.observe_preferences(first, sources)), 1)
+
+    def test_a_run_names_the_version_in_force_when_it_started(self):
+        seen = [{"kind": "PreferencesObserved", "at": "2026-09-17T10:00:00Z",
+                 "source": "personal instructions", "sha256": "a" * 64}]
+        carried = store.preferences_carried(seen, "2026-09-17T12:00:00Z")
+        self.assertEqual(carried["carried"][0]["sha256"], "a" * 64)
+        self.assertIsNone(carried["unknown_because"])
+
+    def test_a_run_before_any_observation_says_why_it_cannot_know(self):
+        seen = [{"kind": "PreferencesObserved", "at": "2026-09-17T10:00:00Z",
+                 "source": "personal instructions", "sha256": "a" * 64}]
+        carried = store.preferences_carried(seen, "2026-09-01T09:00:00Z")
+        self.assertEqual(carried["carried"], [])
+        self.assertIn("recording began", carried["unknown_because"])
+
+    def test_what_this_mac_cannot_see_is_stated_on_every_run(self):
+        carried = store.preferences_carried([], "2026-09-17T12:00:00Z")
+        self.assertIn("claude.ai", carried["not_visible"])
+
+    def test_the_field_is_not_a_run_fact_so_it_supersedes_nothing(self):
+        self.assertNotIn("preferences_carried", store.RUN_FACTS)
+        self.assertNotIn("preferences_carried", store.SESSION_FACTS)
+
+
+class TheSameSessionNamedOnBothSides(unittest.TestCase):
+    """P-0001-T52 / RQ-25. The Claude apps hold sessions, not tasks."""
+
+    def test_the_task_level_identifier_is_null_by_rule_and_says_why(self):
+        self.assertIn("sessions, not tasks", store.CLAUDE_TASK_ID_RULE)
+        self.assertIn("Null by rule", store.CLAUDE_TASK_ID_RULE)
+
+    def test_a_run_the_app_does_not_know_says_so_rather_than_being_blank(self):
+        class Reg:
+            def allocate_run(self, session): return "R-0001"
+            def aliases_of(self, ref): return []
+            def add_alias(self, a, b): pass
+        runs = [{"claude_session_id": "abc", "started_at": "2026-09-17T12:00:00Z",
+                 "cost_usd": 1.0}]
+        built, _ = store.ingest_runs(runs, Reg(), [], moving=set(), app_sessions={})
+        self.assertIsNone(built[0]["claude_app_session"]["app_session_id"])
+        self.assertIn("nothing on the other side", built[0]["claude_app_session"]["why"])
+
+    def test_a_run_the_app_knows_carries_its_id_and_link(self):
+        class Reg:
+            def allocate_run(self, session): return "R-0001"
+            def aliases_of(self, ref): return []
+            def add_alias(self, a, b): pass
+        runs = [{"claude_session_id": "abc", "started_at": "2026-09-17T12:00:00Z",
+                 "cost_usd": 1.0}]
+        seen = {"abc": {"app_session_id": "local_x", "title": "t", "cwd": "/x",
+                        "link": "claude://claude.ai/epitaxy/local_x"}}
+        built, _ = store.ingest_runs(runs, Reg(), [], moving=set(), app_sessions=seen)
+        self.assertEqual(built[0]["claude_app_session"]["app_session_id"], "local_x")
+
+    def test_it_is_not_a_run_fact(self):
+        self.assertNotIn("claude_app_session", store.RUN_FACTS)

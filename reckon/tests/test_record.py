@@ -64,6 +64,9 @@ class TestRecordRun(unittest.TestCase):
                                  "changed": ["cost_usd"]}],
                  "unchanged": ["R-0003"]}
         fake_store.ingest_runs.return_value = (appended, report)
+        # P-0001-T53: the preferences fingerprint is read before intake.
+        fake_store.read_decisions.return_value = []
+        fake_store.observe_preferences.return_value = []
         fake_store.runs_path.return_value = Path("/tmp/fake-runs/2026-09.jsonl")
 
         with tempfile.TemporaryDirectory() as tmp:

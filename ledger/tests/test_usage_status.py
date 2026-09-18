@@ -194,5 +194,98 @@ class R8ThePeriod(unittest.TestCase):
         self.assertTrue(result["spans_weekly_break"])
 
 
+
+class TestTheBoardShowsEveryAccountSideBySide(unittest.TestCase):
+    """P-0001-T55. Two accounts with different weekly resets, never averaged."""
+
+    NOW = datetime(2026, 9, 17, 13, 0, tzinfo=timezone.utc)
+
+    def sample(self, key, at, five, week):
+        return {"t": int(datetime.fromisoformat(at.replace("Z", "+00:00")).timestamp() * 1000),
+                "at": at, "account_key": key, "five_hour_percent": five,
+                "seven_day_percent": week}
+
+    def result(self, samples=(), pastes=(), statusline=()):
+        return us.by_account(samples=list(samples), pastes=list(pastes),
+                                       statusline=list(statusline), now=self.NOW)
+
+    def test_both_accounts_get_a_column_and_nothing_is_averaged(self):
+        out = self.result([self.sample("k1", "2026-09-15T08:00:00Z", 10, 30),
+                           self.sample("k2", "2026-09-17T12:45:00Z", 42, 56)])
+        self.assertEqual([c["account"] for c in out["accounts"]], ["account-1", "account-2"])
+        week = {c["account"]: c["figures"]["seven_day"]["current"]["percent"]
+                for c in out["accounts"]}
+        self.assertEqual(week, {"account-1": 30, "account-2": 56})
+
+    def test_a_newer_paste_goes_on_top_of_an_older_desktop_reading(self):
+        out = self.result([self.sample("k1", "2026-09-15T08:00:00Z", 10, 30)],
+                          [{"taken_at": "2026-09-17T12:27:00Z", "account": "account-1",
+                            "five_hour_percent": 36, "seven_day_percent": 6,
+                            "seven_day_resets_at_text": "Thu 9:00 AM"}])
+        week = out["accounts"][0]["figures"]["seven_day"]
+        self.assertEqual(week["current"]["percent"], 6)
+        self.assertEqual(week["others"], [], "a reading from before the reset is not shown")
+
+    def test_two_sources_close_together_are_both_shown(self):
+        out = self.result([self.sample("k1", "2026-09-17T12:20:00Z", 30, 8)],
+                          [{"taken_at": "2026-09-17T12:27:00Z", "account": "account-1",
+                            "five_hour_percent": 36, "seven_day_percent": 6}])
+        week = out["accounts"][0]["figures"]["seven_day"]
+        self.assertEqual(week["current"]["percent"], 6)
+        self.assertEqual(week["others"][0]["percent"], 8)
+
+    def test_eighty_percent_warns_and_seventy_nine_does_not(self):
+        out = self.result([self.sample("k1", "2026-09-17T12:50:00Z", 79, 80)])
+        figs = out["accounts"][0]["figures"]
+        self.assertFalse(figs["five_hour"]["at_or_over_warning"])
+        self.assertTrue(figs["seven_day"]["at_or_over_warning"])
+        self.assertEqual(len(out["accounts"][0]["warnings"]), 1)
+
+    def test_a_reading_older_than_its_window_is_not_current(self):
+        out = self.result([self.sample("k1", "2026-09-17T06:00:00Z", 90, 20)])
+        five = out["accounts"][0]["figures"]["five_hour"]
+        self.assertIsNone(five["current"])
+        self.assertFalse(five["at_or_over_warning"])
+        self.assertIsNotNone(five["others"][0]["stale"])
+
+    def test_a_status_line_reading_is_not_guessed_into_an_account(self):
+        out = self.result(statusline=[{"taken_at": "2026-09-17T12:59:00Z",
+                                       "five_hour_percent": 12}])
+        self.assertEqual(out["accounts"], [])
+        self.assertEqual(out["unassigned"]["figures"]["five_hour"]["current"]["percent"], 12)
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+class AStatusLineReadingBelongsToAnAccount(unittest.TestCase):
+    """The owner, 17 September 2026, minutes after the first status-line reading was
+    ever written on this Mac: "why do we have three accounts showing in the
+    board?" It named no account, so the screen showed it as a third one."""
+
+    def test_the_status_line_keys_its_account_the_same_way_the_desktop_file_does(self):
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        import statusline as sl
+        import plan_usage as pu
+        self.assertEqual(sl._KEY_PREFIX, pu._KEY_PREFIX)
+        self.assertEqual(sl.ACCOUNT_KEY_LENGTH, pu.ACCOUNT_KEY_LENGTH)
+
+    def test_a_reading_with_no_key_takes_the_account_being_sampled_around_it(self):
+        samples = [{"at": "2026-09-17T13:30:00Z", "account_key": "k1"},
+                   {"at": "2026-09-17T13:40:00Z", "account_key": "k1"}]
+        labels = {"k1": "account-1"}
+        self.assertEqual(
+            us._account_around("2026-09-17T13:33:00Z", samples, labels), "account-1")
+
+    def test_two_accounts_around_it_leave_it_unassigned(self):
+        samples = [{"at": "2026-09-17T13:30:00Z", "account_key": "k1"},
+                   {"at": "2026-09-17T13:40:00Z", "account_key": "k2"}]
+        labels = {"k1": "account-1", "k2": "account-2"}
+        self.assertIsNone(us._account_around("2026-09-17T13:33:00Z", samples, labels))
+
+    def test_a_reading_far_from_any_sample_stays_unassigned(self):
+        samples = [{"at": "2026-09-17T09:00:00Z", "account_key": "k1"}]
+        labels = {"k1": "account-1"}
+        self.assertIsNone(us._account_around("2026-09-17T13:33:00Z", samples, labels))

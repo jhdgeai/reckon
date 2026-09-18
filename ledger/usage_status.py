@@ -53,6 +53,10 @@ LIMITS_PATH = HERE / "limits.json"
 SOURCE_DESKTOP = "desktop app's file"
 SOURCE_PASTE = "paste of the usage page"
 SOURCE_STATUSLINE = "Claude Code status line"
+#: How close in time another source's reading must be to be shown beside the
+#: current one on the Board (by_account).
+OTHERS_WITHIN = timedelta(hours=1)
+UNREAD = object()   # the status line's last-call note was not looked for
 
 
 def _now(now=None):
@@ -267,15 +271,19 @@ def cross_check(path=None, now=None):
 
 
 def status(samples=None, pastes=None, statusline=None, limits_path=None, now=None,
-           live=None, archive=None, copies=None, observations=None, statusline_path=None):
+           live=None, archive=None, copies=None, observations=None, statusline_path=None,
+           statusline_called=UNREAD):
     now = _now(now)
     if samples is None:
         samples = plan_usage.merge(*[s["samples"] for s in _desktop_sources(live, archive, copies)])
     if pastes is None:
         pastes = _read_jsonl(observations or usage_paste.DEFAULT_OBSERVATIONS)
+    called = statusline_called
     if statusline is None:
         import statusline as sl
         statusline = _read_jsonl(statusline_path or sl.DEFAULT_READINGS)
+        if called is UNREAD:
+            called = sl.read_called(statusline_path)
 
     account, desktop = desktop_series(samples)
     pasted = paste_series(pastes)
@@ -299,16 +307,164 @@ def status(samples=None, pastes=None, statusline=None, limits_path=None, now=Non
         split = {"taken_at": newest["taken_at"], "percent": newest["product_split_percent"]}
 
     warnings = [e["warning"] for figure in WINDOWS for e in figures[figure] if e["warning"]]
-    return {
+    result = {
         "generated_at": _stamp(now),
         "figures": figures,
         "warnings": warnings,
         "product_split": split,
+        "credits": credits_seen(pastes),
         "cross_check": cross_check(limits_path, now),
         "notes": [
             "The account's own meter, from every source that has a reading. Where two sources "
             "disagree both are shown; nothing is averaged.",
             "Not a bill, and nothing here is converted into money.",
+        ],
+    }
+    if called is not UNREAD:
+        result["statusline_called"] = called
+    return result
+
+
+def credits_seen(pastes):
+    """The credits block from the newest paste that carries one (P-0001-T19).
+
+    Only a paste of the usage page has this: the desktop app's file and the
+    status line carry percentages and nothing about money. NO AGE LIMIT is
+    applied, and that is deliberate -- a spend limit and a balance are the
+    account's standing arrangement rather than a gauge that moves by the hour,
+    and the alternative to an old reading here is no reading at all, which is
+    how this went unanswered from 6 September. The reading says when it was
+    taken and the caller says how old that is.
+
+    Every figure is the text the page showed. Nothing is converted, nothing is
+    compared with this register's own estimates, and the percentage is the
+    page's own, not one computed here.
+    """
+    carrying = [r for r in pastes
+                if r.get("credit_spend_limit_text") or r.get("credit_balance_text")
+                or r.get("usage_credits_text")]
+    if not carrying:
+        return None
+    newest = max(carrying, key=lambda r: r.get("taken_at") or "")
+    return {field: newest.get(field) for field in (
+        "taken_at", "account", "usage_credits_text", "credit_spend_this_month_text",
+        "credit_spend_limit_text", "credit_spend_limit_percent_used",
+        "credit_spend_limit_resets_text", "credit_balance_text", "auto_reload")}
+
+
+STATUSLINE_ATTRIBUTION_WINDOW = timedelta(minutes=30)
+
+
+def _account_around(taken_at, samples, labels):
+    """The one account the desktop file was sampling around this moment, or None."""
+    at = _parse(taken_at)
+    if at is None:
+        return None
+    near = {labels.get(s.get("account_key"))
+            for s in samples or []
+            if abs(_parse(s["at"]) - at) <= STATUSLINE_ATTRIBUTION_WINDOW}
+    near.discard(None)
+    return next(iter(near)) if len(near) == 1 else None
+
+
+def by_account(samples=None, pastes=None, statusline=None, now=None,
+               live=None, archive=None, copies=None, observations=None, statusline_path=None):
+    """The meter per account, for the Board (P-0001-T55). Both accounts side by
+    side, never averaged and never summed: two accounts are two meters.
+
+    status() judges the desktop file for the most recently seen account only,
+    which is right for `reckon status` on the machine in front of you and wrong
+    for a screen that has to show both. Here every account the desktop file or a
+    paste names gets its own column, and each figure shows the NEWEST reading
+    that still describes a live window, with the others listed under it by
+    source and age -- so a desktop sample from before a weekly reset cannot sit
+    on top of a paste taken after it.
+
+    A status-line reading names no account, so it goes under `unassigned`
+    rather than being guessed into one. Not a bill; nothing is converted."""
+    now = _now(now)
+    if samples is None:
+        samples = plan_usage.merge(*[s["samples"] for s in _desktop_sources(live, archive, copies)])
+    if pastes is None:
+        pastes = _read_jsonl(observations or usage_paste.DEFAULT_OBSERVATIONS)
+    if statusline is None:
+        import statusline as sl
+        statusline = _read_jsonl(statusline_path or sl.DEFAULT_READINGS)
+
+    labels = plan_usage.account_labels(samples or [])
+    readings = {}   # account -> figure -> [entries]
+
+    def put(account, figure, entry):
+        if entry:
+            readings.setdefault(account, {f: [] for f in WINDOWS})[figure].append(entry)
+
+    for key, label in labels.items():
+        mine = sorted((x for x in samples if x.get("account_key") == key), key=lambda x: x["t"])
+        for figure in WINDOWS:
+            points = [{"at": _parse(x["at"]), "percent": x[f"{figure}_percent"], "resets_at": None}
+                      for x in mine if isinstance(x.get(f"{figure}_percent"), (int, float))]
+            put(label, figure, judge(figure, SOURCE_DESKTOP, points, now, label))
+
+    by_paste_account = {}
+    for r in pastes or []:
+        by_paste_account.setdefault(r.get("account"), []).append(r)
+    for account, group in by_paste_account.items():
+        series = paste_series(group)
+        for figure in WINDOWS:
+            put(account, figure, judge(figure, SOURCE_PASTE, series[figure], now, account))
+
+    # A reading that names its account by key goes in that account's column;
+    # one that does not stays unassigned rather than being guessed into one.
+    by_status_account = {}
+    for r in statusline or []:
+        account = labels.get(r.get("account_key"))
+        if account is None:
+            # A READING WRITTEN BEFORE THE KEY EXISTED. Attributed the way a Run
+            # with no account line already is: by what the desktop app's own
+            # meter was sampling at that moment, and only when the samples
+            # around it name ONE account. Evidence, not a guess -- where two
+            # accounts are sampled either side of it, it stays unassigned.
+            account = _account_around(r.get("taken_at"), samples, labels)
+        by_status_account.setdefault(account, []).append(r)
+    for account, group in by_status_account.items():
+        line = statusline_series(group)
+        for figure in WINDOWS:
+            put(account, figure, judge(figure, SOURCE_STATUSLINE, line[figure], now, account))
+
+    def column(account, figures):
+        out = {"account": account, "figures": {}, "warnings": []}
+        for figure in WINDOWS:
+            entries = sorted(figures[figure], key=lambda e: e["taken_at"], reverse=True)
+            live_entries = [e for e in entries if e["percent"] is not None]
+            current = live_entries[0] if live_entries else None
+            out["figures"][figure] = {
+                "name": NAMES[figure],
+                "current": current,
+                # Only readings taken close to the current one: two sources that
+                # disagree NOW are worth seeing; a reading from before a reset is
+                # not a disagreement, it is history, and it read as "100%" on the
+                # first draw of this panel on 17 September.
+                "others": [e for e in entries if e is not current and (
+                    current is None or
+                    (_parse(current["taken_at"]) - _parse(e["taken_at"])) <= OTHERS_WITHIN)],
+                "at_or_over_warning": bool(current and current["percent"] >= WARN_AT),
+            }
+            if current and current["warning"]:
+                out["warnings"].append(current["warning"])
+        return out
+
+    accounts = [column(a, readings[a]) for a in sorted(k for k in readings if k)]
+    return {
+        "generated_at": _stamp(now),
+        "warn_at_percent": WARN_AT,
+        "accounts": accounts,
+        "unassigned": column(None, readings[None]) if None in readings else None,
+        "notes": [
+            "Each account's own meter, as the desktop app, a pasted usage page or the Claude "
+            "Code status line recorded it. Two accounts are two meters: nothing is averaged "
+            "or added up.",
+            "The meter counts everything the account did, on every device. It is not a bill "
+            "and nothing here is converted into money.",
         ],
     }
 
@@ -376,6 +532,18 @@ def _desktop_sources(live=None, archive=None, copies=None):
     return [plan_usage.read_source(p) for p in paths]
 
 
+def statusline_called_line(note):
+    """Never-ran and ran-without-a-meter are different findings (P-0001-T79)."""
+    if not note or not note.get("called_at"):
+        return ("\nStatus line: has never run on this machine, so no reading carries a reset "
+                "time. Claude Code in a terminal runs it; the desktop app does not.")
+    when = note["called_at"][:16].replace("T", " ")
+    if note.get("had_meter"):
+        return f"\nStatus line: last ran {when} UTC, with a reading."
+    return (f"\nStatus line: last ran {when} UTC with no meter in its input "
+            f"(Claude Code gives one only to subscribers, after the first reply).")
+
+
 def lines(result):
     out = []
     for w in result["warnings"]:
@@ -407,6 +575,7 @@ def lines(result):
     if split:
         parts = ", ".join(f"{k} {v}%" for k, v in split["percent"].items())
         out.append(f"\nThis week by product (paste of {split['taken_at'][:10]}): {parts}")
+    out += credit_lines(result.get("credits"))
     check = result["cross_check"]
     if check["available"] and check["percent_of_observed_ceiling"] is not None:
         out.append(f"\nCross-check: {check['percent_of_observed_ceiling']}% of the observed "
@@ -415,8 +584,47 @@ def lines(result):
                    f"{check['note']}.")
     else:
         out.append(f"\nCross-check: {check['note']}.")
+    if "statusline_called" in result:
+        out.append(statusline_called_line(result["statusline_called"]))
     out.append("")
     out += [f"* {n}" for n in result["notes"]]
+    return out
+
+
+def credit_lines(credits):
+    """The credits block, in words. Every figure is the page's own text.
+
+    Shown however old it is, with its date, because a spend limit and a balance
+    are standing arrangements rather than gauges -- see `credits_seen`. Nothing
+    here is converted into money this register has calculated, and nothing is
+    set beside the register's own estimates: the estimate is a floor on what an
+    account loses, never a prediction of what a limit will read.
+    """
+    if not credits:
+        return []
+    who = f", {credits['account']}" if credits.get("account") else ""
+    taken = (credits.get("taken_at") or "")[:16].replace("T", " ")
+    out = [f"\nUsage credits (paste of the usage page{who}, taken {taken} UTC)"]
+    if credits.get("credit_spend_limit_text"):
+        share = ("" if credits.get("credit_spend_limit_percent_used") is None
+                 else f", {credits['credit_spend_limit_percent_used']}% used")
+        resets = ("" if not credits.get("credit_spend_limit_resets_text")
+                  else f", resets {credits['credit_spend_limit_resets_text']} "
+                       f"(as the page put it)")
+        out.append(f"  monthly spend limit  {credits['credit_spend_limit_text']}"
+                   f"{share}{resets}")
+    spent = credits.get("credit_spend_this_month_text")
+    if spent:
+        out.append(f"  spent this month     {spent}")
+    elif credits.get("usage_credits_text"):
+        out.append(f"  usage credits        {credits['usage_credits_text']} "
+                   f"(the page did not say whether this is a balance or a spend)")
+    if credits.get("credit_balance_text"):
+        reload_state = ("" if not credits.get("auto_reload")
+                        else f", auto-reload {credits['auto_reload']}")
+        out.append(f"  current balance      {credits['credit_balance_text']}{reload_state}")
+    elif credits.get("auto_reload"):
+        out.append(f"  auto-reload          {credits['auto_reload']}")
     return out
 
 

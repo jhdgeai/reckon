@@ -92,5 +92,34 @@ class R3TheStatusLine(unittest.TestCase):
                          (us.SOURCE_STATUSLINE, 14.0, "2026-09-17T14:00:00Z"))
 
 
+class T79WhenTheStatusLineLastRan(unittest.TestCase):
+    def test_every_call_notes_when_it_ran_and_whether_it_had_a_meter(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "readings.jsonl"
+            run(json.dumps({"session_id": "s1"}), path)
+            self.assertEqual(sl.read_called(path),
+                             {"called_at": "2026-09-17T12:00:00Z", "had_meter": False})
+            run(json.dumps(payload()), path, NOW + timedelta(minutes=2))
+            self.assertEqual(sl.read_called(path)["had_meter"], True)
+            run("{not json", path, NOW + timedelta(minutes=3))
+            self.assertEqual(sl.read_called(path)["called_at"], "2026-09-17T12:03:00Z")
+
+    def test_status_says_the_status_line_never_ran_when_there_is_no_note(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = us.status(samples=[], pastes=[], statusline_path=Path(tmp) / "r.jsonl",
+                               limits_path=Path(tmp) / "none.json", now=NOW)
+        self.assertIsNone(result["statusline_called"])
+        self.assertIn("has never run on this machine", "\n".join(us.lines(result)))
+
+    def test_status_says_when_it_last_ran(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "r.jsonl"
+            run(json.dumps({"session_id": "s1"}), path)
+            result = us.status(samples=[], pastes=[], statusline_path=path,
+                               limits_path=Path(tmp) / "none.json", now=NOW)
+        text = "\n".join(us.lines(result))
+        self.assertIn("last ran 2026-09-17 12:00 UTC with no meter", text)
+
+
 if __name__ == "__main__":
     unittest.main()

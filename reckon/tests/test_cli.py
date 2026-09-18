@@ -152,3 +152,19 @@ class TestInstallCheckGatesEveryCommand(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheVersionIsOneNumber(unittest.TestCase):
+    """P-0001-T77, 17 September 2026: reckon/__init__.py said 1.1.0 while the
+    package was published as 1.2.1. Two copies of a version drift; this holds
+    them together until there is one."""
+
+    def test_the_module_and_the_package_say_the_same_version(self):
+        import re
+        from pathlib import Path
+        import reckon
+        root = Path(__file__).resolve().parents[2]
+        declared = re.search(r'^version\s*=\s*"([^"]+)"',
+                             (root / "pyproject.toml").read_text(encoding="utf-8"), re.M)
+        self.assertIsNotNone(declared)
+        self.assertEqual(reckon.__version__, declared.group(1))

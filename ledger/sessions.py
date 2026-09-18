@@ -16,13 +16,32 @@ No third-party dependencies, no network. The transcript tree is read-only.
 """
 
 import re
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 MARKER = re.compile(r"^register-task: (P-\d{4}-T\d+)[ \t]*$", re.MULTILINE)
 CEILING_MARKER = re.compile(r"^register-ended: ceiling[ \t]*$", re.MULTILINE)
 SYSTEM_REMINDER = re.compile(r"<system-reminder>.*?</system-reminder>", re.DOTALL)
 INTERRUPT = "[Request interrupted by user"
 OUTCOME_COMMAND = re.compile(r"--outcome\b|\bappend_outcome\(")
+
+# WHAT COUNTS AS A SESSION HAVING FINISHED ITS WORK. P-0001-T64, 17 September
+# 2026. Until today the only evidence accepted was an outcome written through
+# the store, so 45 of 173 September runs read `unknown` with the basis "ended
+# end_turn but the session recorded no outcome" -- a session that closed
+# properly, wrote the next session's brief and committed, and was still
+# recorded as an ending nobody could name. Absence of one particular command
+# was being read as absence of a close.
+#
+# So the evidence is the CLOSE this project actually asks for, in any of its
+# forms, and the basis says which one was seen. Each is a tool_use in the
+# transcript, never prose: a session that merely SAYS it finished has not.
+CLOSING_WORK = (
+    (re.compile(r"--outcome\b|\bappend_outcome\("), "recorded an outcome"),
+    (re.compile(r"--handoff\b|\bset_invocation\("), "wrote the next session's brief"),
+    (re.compile(r"\bgit commit\b"), "committed its work"),
+    (re.compile(r"--integrity-update\b"), "updated the integrity baseline"),
+    (re.compile(r"\breckon\b[^|;&]*\brecord\b|recorder\.py"), "ran the measure chain"),
+)
 
 BOARD_START_WINDOW_SECONDS = 120
 DEFAULT_IDLE_GAP_MINUTES = 10
@@ -160,16 +179,29 @@ def _conversation(records):
                   key=lambda r: r["timestamp"])
 
 
-def _recorded_outcome(records):
+def _closing_work(records):
+    """What this session did at its close, in the order CLOSING_WORK lists.
+
+    Returns the list of descriptions seen, newest rule last. Empty means the
+    transcript holds no evidence that it closed anything."""
+    seen = []
     for record in records:
         if record.get("type") != "assistant":
             continue
         for block in (record.get("message") or {}).get("content") or []:
-            if (isinstance(block, dict) and block.get("type") == "tool_use"
-                    and block.get("name") == "Bash"
-                    and OUTCOME_COMMAND.search(str((block.get("input") or {}).get("command", "")))):
-                return True
-    return False
+            if not (isinstance(block, dict) and block.get("type") == "tool_use"):
+                continue
+            command = str((block.get("input") or {}).get("command", ""))
+            if not command:
+                continue
+            for pattern, said in CLOSING_WORK:
+                if said not in seen and pattern.search(command):
+                    seen.append(said)
+    return seen
+
+
+def _recorded_outcome(records):
+    return bool(_closing_work(records))
 
 
 def _ceiling_marker(records):
@@ -231,8 +263,17 @@ def ending(records, *, task_ref=None, board_started_at=None, assistant_messages=
 
     ended_on_end_turn = bool(conversation) and conversation[-1] is last_assistant and (
         (last_assistant.get("message") or {}).get("stop_reason") == "end_turn")
-    if ended_on_end_turn and _recorded_outcome(records):
-        return "finished", "last assistant turn ended end_turn and the session recorded an outcome"
+    closed = _closing_work(records)
+    if ended_on_end_turn and closed:
+        basis = "last assistant turn ended end_turn and the session " + " and ".join(closed)
+        # WIDENING RULE 2 TAKES CASES OFF RULE 5, AND THE FACT MUST NOT BE LOST.
+        # A session that closed properly AT the ceiling is finished by §3.4's
+        # order, and it also stopped where the ceiling made it stop. The first
+        # is the ending; the second stays in the basis rather than vanishing.
+        if at_count:
+            basis += (f"; it was at the message ceiling ({assistant_messages} of "
+                      f"{ceiling_messages}) when it closed")
+        return "finished", basis
 
     if conversation and conversation[-1].get("type") == "user" and \
             _text_blocks(conversation[-1]).startswith(INTERRUPT):
@@ -251,8 +292,10 @@ def ending(records, *, task_ref=None, board_started_at=None, assistant_messages=
             f"ceiling of {ceiling_messages} in wrapper/gate.json and the session did not finish")
 
     if ended_on_end_turn:
-        return "unknown", ("last assistant turn ended end_turn but the session recorded no "
-                           "outcome, so finishing its work is not shown")
+        return "unknown", ("last assistant turn ended end_turn but the transcript holds "
+                           "none of the closing acts -- no outcome, no handoff, no commit, "
+                           "no integrity update, no measure chain -- so finishing its work "
+                           "is not shown")
     return "unknown", "none of the four endings has evidence in the transcript"
 
 
@@ -301,13 +344,73 @@ def account_labels(sessions_records):
             for i, owner in enumerate(sorted(first, key=first.get))}
 
 
-def account_for(records, labels, started_at, stated=None):
+#: How far before a session's first line the desktop app's sign-in is read. The
+#: app samples about every fifteen minutes, so a short session can fall between
+#: two samples; the sample before it is the sign-in it started under.
+DESKTOP_LOOKBACK_MINUTES = 30
+
+
+def org_labels(sessions_records, labels, key_fn):
+    """{hashed organisation key: 'account-N'} from transcript lines that name both
+    an owner account and its organisation. The desktop app's usage history keys
+    its samples by organisation, hashed by plan_usage.account_key, so this is the
+    join between the two readers. Identifiers go in hashed and never come out."""
+    joined = {}
+    for records in sessions_records:
+        for record in records:
+            owner, org = record.get("ownerAccountUuid"), record.get("ownerOrganizationUuid")
+            if owner in labels and org:
+                joined[key_fn(org)] = labels[owner]
+    return joined
+
+
+def _moment(stamp):
+    try:
+        moment = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
+
+
+def desktop_account(desktop, started_at, ended_at, lookback=DESKTOP_LOOKBACK_MINUTES):
+    """(account, basis) from the desktop app's sign-in over a session's span, or
+    (None, why). `desktop` is [(ISO time, 'account-N' or None)]. Only an answer
+    when every sample from `lookback` minutes before the start to the end names
+    the same labelled account; anything else is said, never guessed."""
+    start, end = _moment(started_at), _moment(ended_at or started_at)
+    if start is None or end is None:
+        return None, "the session has no start time to read the desktop app's sign-in against"
+    window = [label for at, label in desktop
+              if (moment := _moment(at)) and start - timedelta(minutes=lookback) <= moment <= end]
+    if not window:
+        return None, "and the desktop app's usage history has no sample over its span"
+    if None in window or len(set(window)) > 1:
+        return None, ("and the desktop app's usage history over its span names more than "
+                      "one account, or one no transcript names")
+    return window[0], (
+        f"no transcript line names an owner account (Claude Code writes it only while Remote "
+        f"Control is on), so this is the desktop app's sign-in: its usage history names "
+        f"{window[0]} on all {len(window)} sample(s) from {lookback} minutes before the start "
+        f"to the end. A second source, not the transcript's own statement; on 15 September "
+        f"the two disagreed for eleven hours (ledger/rails.json _second_account_dated)")
+
+
+def account_for(records, labels, started_at, stated=None, desktop=None, ended_at=None):
     """(account, basis). `mixed` when one session carries two. Checked against
-    the owner's dated statement where one is recorded, and a disagreement is said."""
+    the owner's dated statement where one is recorded, and a disagreement is said.
+
+    Where no line names the owner -- every session run without Remote Control,
+    found 17 September 2026 -- the desktop app's sign-in over the session's
+    span answers instead, with a basis that says it is the second source."""
     found = sorted({labels[r["ownerAccountUuid"]] for r in records
                     if r.get("ownerAccountUuid") in labels})
     if not found:
-        return None, "no transcript line names an owner account"
+        if desktop is None:
+            return None, "no transcript line names an owner account"
+        account, basis = desktop_account(desktop, started_at, ended_at)
+        if account is None:
+            return None, f"no transcript line names an owner account, {basis}"
+        return account, basis
     account = found[0] if len(found) == 1 else "mixed"
     basis = "owner account named on the transcript's own lines"
     rule = (stated or {}).get("cross_check_rule") or {}

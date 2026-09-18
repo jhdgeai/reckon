@@ -233,6 +233,15 @@ DISCLOSIVE_FIELDS = frozenset({
     # about the work -- the second group's rule exactly -- and a sentence
     # naming what the owner has to decide names the thing he has to decide about.
     "decision_owed",
+    # A Decision record's free text (P-0001-T78), here in the same change that adds
+    # it for the reason given twice above. `by` needs no entry: every `*_by` is a
+    # person and governance puts the placeholder in.
+    "proposition", "decision_basis", "decision_condition", "applies_to",
+    # A run's `account_basis` is free text, and records written on 16 September
+    # quote the owner by name. Found 17 September by the real-export audit test
+    # (test_parked), not by reasoning; the records are append-only, so the field
+    # is redacted rather than the text corrected.
+    "account_basis",
     # `invocation_path` points at the next session's opening prompt, and it is
     # a PATH -- §8.5's own sentence, the same reason `parked_ref` is here. The
     # prompt's TEXT is not front matter (it has newlines) and so never reaches
@@ -251,6 +260,51 @@ DISCLOSIVE_FIELDS = frozenset({
     # caught it six times where reasoning has caught it none.
     "queued_note",
 })
+
+# THE SEVENTH INSTANCE OF THE SAME SHAPE, and the first one that is not a field
+# the redactor forgot -- it is a field the redactor cannot see.
+#
+# `DISCLOSIVE_FIELDS` is read by a redactor that walks the TOP LEVEL of a record
+# and nothing else (governance._redact_mapping), which was true and safe for as
+# long as every value on a Run was flat. P-0001-T52 then hung a whole sub-record
+# off the Run -- `claude_app_session`, the desktop app's own name for the same
+# session -- and three of its five values are the two kinds this set already
+# calls disclosive: `title` is free text a human wrote about the work, `cwd` and
+# `link` are PATHS, which is §8.5's own sentence. `name` and `path` were already
+# in the set above and still did not match, because the keys are nested one
+# level down and the words are different.
+#
+# Found 17 September by the real-export audit, not by reasoning -- the seventh
+# time out of seven. It was found only because three of the leaked strings
+# happened to ALSO be top-level disclosive values elsewhere in the store (a
+# project name, a project slug, a task name) and so were already in the audit's
+# secrets. The titles that named nothing else in the store went straight
+# through and nothing complained. That is why the audit is extended in the same
+# change: every value named here is a secret the audit asserts against, so the
+# next nested field is caught on its own account rather than by coincidence.
+#
+# The records are append-only and hold the owner's home directory by
+# construction, so the fix is redaction at presentation, never a rewrite.
+#
+# NOT here, deliberately, and for the reasons the set above already gives:
+# `app_session_id` is a uuid and names nothing, exactly like `claude_session_id`;
+# `why` is one fixed sentence this machine writes when the desktop app has no
+# record of a session, so it names no one and explains an otherwise empty block.
+DISCLOSIVE_SUBRECORDS = {
+    "claude_app_session": frozenset({"title", "cwd", "link"}),
+}
+
+# A PackagePublished record (package/publish.py) says a build was uploaded, and
+# its `repository` is the owner's GitHub account by construction. It is not
+# secret -- the record itself says the repository is PUBLIC -- but presentation
+# mode is not about secrecy of each value: it is about an export that can be put
+# in front of a client without naming who made it. `github_repo` is already on
+# the list above for exactly this, and this is the same value under a different
+# key. Redacted in `governance._redact_decision`, which is where ExportConsent's
+# `destination` already goes for the same reason. What survives is what the log
+# is for: that a package was published, when, at what tag, how visible, and the
+# commit and digest that prove which bytes.
+PACKAGE_PUBLISHED_KIND = "PackagePublished"
 
 # §2.1 has `cost_to_date_gbp` and it has been null on P-0001 since an earlier session.
 # PLAN.md row 8 asked for a stated rule or a deliberate null. THE RULE, decided
@@ -271,13 +325,39 @@ DISCLOSIVE_FIELDS = frozenset({
 # list rates every time it is shown. The pound figure that IS real -- the £20
 # subscription -- is emitted by query 14 as itself, beside the USD figure and
 # deliberately not divided into it.
+# AMENDED 17 September 2026, P-0001-T71. The owner reversed the no-FX half of this
+# rule on 16 September ("I want to see my amounts in GBP always", "Yes use a
+# daily rate"). The rate source now exists (ledger/fx.py) and a project's pounds
+# ARE shown: the Board converts each of its runs at that run's own day and sums
+# them. The field on the record stays null for the reason that survives: it is
+# derived, it changes with every run, and a derived figure typed into a record
+# is stale by the next run. The reasons that were about the rate are withdrawn.
 COST_TO_DATE_GBP_RULE = (
-    "Null by rule. Run costs are client-side estimates at list rates on the "
-    "subscription rail -- a shadow price, not money that moved -- and there is "
-    "no FX rate source on this machine and no non-arbitrary way to apportion a "
-    "fixed monthly subscription across the runs inside it. The USD roll-up is "
-    "emitted instead, labelled; the £20 subscription is emitted by §10 query 14 "
-    "as itself. A converted figure would read as a bill. An earlier session, PLAN.md row 8.")
+    "Null on the record by rule; shown on the screen. Since P-0001-T71 (the owner, "
+    "16 September 2026, reversing the earlier no-conversion rule) a project's "
+    "cost in pounds is computed wherever it is read -- each run converted at its "
+    "own day's European Central Bank rate by ledger/fx.py, then summed -- and "
+    "never written into the Project record, where it would be stale by the next "
+    "run. It is still a shadow price at list rates, not money that moved and not "
+    "a bill, and the £20 subscription is still not apportioned across runs. "
+    "An earlier session, PLAN.md row 8; amended P-0001-T71.")
+
+# P-0001-T52, RQ-25, 17 September 2026. Looked at rather than assumed: the
+# desktop app keeps one record per SESSION, carrying the same session id this
+# register already holds on every Run (ledger/app_sessions.py reads them). It
+# holds no object corresponding to a task. So the alignment is real and it is
+# at session level; a Task's `claude_task_id` stays null because there is
+# nothing on the other side to equal it, and this constant is the named field
+# that says so. Same shape as COST_TO_DATE_GBP_RULE: null BY RULE, never a
+# blank nobody filled. If a Claude surface ever grows a task object, this is
+# the sentence to withdraw.
+CLAUDE_TASK_ID_RULE = (
+    "Null by rule. The Claude applications hold sessions, not tasks: each "
+    "desktop session record carries its own id and the cli session id this "
+    "register already records on every Run, so a register Task is aligned to "
+    "the other side THROUGH ITS RUNS and not by an id of its own. Filling this "
+    "with a session id would assert that a task and a session are the same "
+    "thing, which is the claim this register exists to keep straight.")
 
 LIST_FIELDS = frozenset({"depends_on", "runs", "outputs", "commits",
                          "aliases", "data_sources"})
@@ -1481,25 +1561,199 @@ def is_backfill(old, changed):
             and all(fact in SESSION_FACTS or fact == "task_ref" for fact in changed))
 
 
-def ingest_runs(ledger_runs, register, existing, now=None):
+def _instant(stamp):
+    """An ISO timestamp as an aware datetime, or None. Transcripts write
+    `...Z` with and without milliseconds, so strings are not compared."""
+    if not stamp:
+        return None
+    try:
+        moment = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
+
+
+def still_moving(ledger_runs):
+    """The sessions that have not settled, by claude_session_id.
+
+    P-0001-T69's intake rule. A session settles once ANOTHER session on this
+    Mac started after this one's last recorded message -- and not before.
+    Never an idle timeout: the owner ruled that out on 16 September 2026
+    ("sessions run overnight and stop five min after I've gone to bed"), and
+    silence is not an ending. His own words for the rule: "They will settle -
+    generally once the next session is underway."
+
+    Comparing against the LAST message rather than the start is what keeps two
+    sessions running at once in different folders honest: the earlier one is
+    not settled by a later one that began while it was still going. A session
+    resumed after it settled moves again, and its next pass is a real
+    correction, which is what a correction is for.
+
+    A run with no end time cannot be placed and counts as settled: the rule
+    holds back what it can see moving, it does not hold back what it cannot
+    read."""
+    starts = [_instant(record.get("started_at")) for record in ledger_runs]
+    moving = set()
+    for record in ledger_runs:
+        ended = _instant(record.get("ended_at"))
+        if ended is None:
+            continue
+        mine = _instant(record.get("started_at"))
+        if not any(start is not None and start >= ended and start != mine
+                   for start in starts):
+            moving.add(record["claude_session_id"])
+    return moving
+
+
+# --------------------------------------------------------------------------
+# His preferences, carried into every run and SAID so. P-0001-T53, RQ-26.
+#
+# The owner, 4 September 2026: "Every project inherits my Claude user preferences
+# btw - hopefully that is implicit but let's make it explicit." It was left
+# implicit for thirteen days. Claude Code loads his personal instructions file
+# into every session it starts, so the carrying already happens; what never
+# existed was a record of WHICH VERSION a run was given.
+#
+# So: a fingerprint of each source is written to decisions/ (append-only, and
+# covered by the integrity check) whenever it changes, and each new Run names
+# the fingerprint in force when it started. The CONTENT is never copied -- it
+# is his, and a fingerprint is enough to say two runs were given the same
+# thing. His claude.ai preferences live on Anthropic's servers and never reach
+# this Mac, and the field says that rather than leaving it to be assumed.
+# --------------------------------------------------------------------------
+
+PREFERENCE_SOURCES = [
+    ("personal instructions, loaded into every Claude Code session",
+     Path.home() / ".claude" / "CLAUDE.md"),
+]
+PREFERENCES_NOT_VISIBLE = ("his claude.ai account preferences are held by Anthropic and "
+                           "do not reach this Mac, so no run here can record them")
+
+
+def _standing_sentence(record):
+    """One Run, with this machine's own standing sentence about what it cannot
+    see restated in today's words.
+
+    `preferences_carried.not_visible` is not evidence. It is a sentence THIS
+    CODE writes into every Run it builds, saying that the owner's claude.ai
+    preferences live on Anthropic's servers. The Runs are append-only and it is
+    not a RUN_FACT, so once the wording is written it can never be corrected on
+    the record -- and on 17 September the package refused to build because the
+    wording carried a word the package's own language rule forbids, in 72
+    records nobody may edit.
+
+    So the export restates it and the record keeps what it said. NOTHING ELSE
+    is restated: every other value here was observed, and an export that
+    rewrote an observation would be worthless. The fingerprints, the source
+    labels and `unknown_because` are all untouched.
+    """
+    carried = record.get("preferences_carried")
+    if not isinstance(carried, dict) or "not_visible" not in carried:
+        return record
+    return dict(record, preferences_carried=dict(carried,
+                                                 not_visible=PREFERENCES_NOT_VISIBLE))
+
+
+def observe_preferences(decisions, sources=None, now=None):
+    """The PreferencesObserved records to append: one per source whose
+    fingerprint differs from the last one recorded. Writes nothing itself."""
+    import hashlib
+    sources = PREFERENCE_SOURCES if sources is None else sources
+    last = {}
+    for record in decisions or []:
+        if record.get("kind") == "PreferencesObserved":
+            last[record.get("source")] = record.get("sha256")
+    out = []
+    for label, path in sources:
+        try:
+            raw = Path(path).read_bytes()
+            sha = hashlib.sha256(raw).hexdigest()
+            size = len(raw)
+        except OSError:
+            sha, size = None, None
+        if last.get(label, "unseen") == sha:
+            continue
+        out.append({"kind": "PreferencesObserved", "at": now or utc_now(),
+                    "source": label, "sha256": sha, "bytes": size,
+                    "notes": ["fingerprint only; the content is not copied"
+                              if sha else "the file was not there to read"]})
+    return out
+
+
+def preferences_carried(decisions, started_at):
+    """The named field for one Run: what it was given, as far as this Mac can see."""
+    begun = _instant(started_at)
+    current = {}
+    first = None
+    for record in sorted((r for r in decisions or []
+                          if r.get("kind") == "PreferencesObserved"),
+                         key=lambda r: r.get("at") or ""):
+        seen = _instant(record.get("at"))
+        first = first or record.get("at")
+        if begun is not None and seen is not None and seen <= begun:
+            current[record["source"]] = {"sha256": record.get("sha256"),
+                                         "observed_at": record.get("at")}
+    carried = [{"source": src, **val} for src, val in sorted(current.items())]
+    return {
+        "carried": carried,
+        "unknown_because": (None if carried else
+                            ("no fingerprint was recorded on or before this run "
+                             "started; recording began " + (first or "after it"))),
+        "not_visible": PREFERENCES_NOT_VISIBLE,
+    }
+
+
+def ingest_runs(ledger_runs, register, existing, now=None, moving=None,
+                preferences=None, app_sessions=None):
     """Turn ledger Runs into store Runs. New ones are appended; changed ones are
     appended as corrections that supersede. Unchanged ones are skipped.
+
+    A session that is still moving (see still_moving()) is HELD: it is not
+    appended, new or corrected, and no ref is allocated for it. It stays in
+    ledger/runs.json, which is rebuilt from nothing every pass, until a later
+    session starts; then it goes in once, with its final figure. That is what
+    lets `reckon record` run unattended over a live conversation without
+    writing a permanent superseding line per pass. report["held"] names them.
+
+    `moving` overrides the computed set; tests of everything else pass set().
 
     Returns (records_to_append, report).
     """
     now = now or utc_now()
     view = current_runs(existing)
     by_session = {record["claude_session_id"]: record for record in view.values()}
-    appended, report = [], {"new": [], "superseded": [], "backfilled": [], "unchanged": []}
+    appended, report = [], {"new": [], "superseded": [], "backfilled": [], "unchanged": [],
+                            "held": []}
+    moving = still_moving(ledger_runs) if moving is None else moving
 
     for record in ledger_runs:
         session = record["claude_session_id"]
+        previous = by_session.get(session)
+        if session in moving:
+            report["held"].append({"session": session,
+                                   "ref": previous["ref"] if previous else None,
+                                   "cost_usd": record.get("cost_usd"),
+                                   "ended_at": record.get("ended_at")})
+            continue
         ref = register.allocate_run(session)
         provisional = record.get("ref")
         if provisional and RUN_ALIAS_RE.match(provisional):
             register.add_alias(provisional, ref)
         built = run_from_ledger(record, ref, register.aliases_of(ref), now=now)
-        previous = by_session.get(session)
+        if app_sessions is not None:
+            # P-0001-T52: the same session, named on both sides. Not a RUN_FACT,
+            # so it never makes an older record look changed.
+            seen = app_sessions.get(session)
+            built["claude_app_session"] = seen or {
+                "app_session_id": None,
+                "why": ("this session is not among the desktop app's own session "
+                        "records, so nothing on the other side names it"),
+            }
+        if preferences is not None:
+            # Not one of RUN_FACTS, so adding it never makes an old Run look
+            # changed and never writes a superseding line by itself.
+            built["preferences_carried"] = preferences_carried(
+                preferences, built.get("started_at"))
         if previous is None:
             appended.append(built)
             report["new"].append({"ref": ref, "session": session,
@@ -1728,8 +1982,8 @@ def export(store, register):
         "refs": register.data,
         "projects": {ref: project["fields"] for ref, project in store["projects"].items()},
         "tasks": {ref: task["fields"] for ref, task in store["tasks"].items()},
-        "runs": list(view.values()),
-        "superseded_runs": [record for record in store["runs"]
+        "runs": [_standing_sentence(record) for record in view.values()],
+        "superseded_runs": [_standing_sentence(record) for record in store["runs"]
                             if record is not view.get(record["ref"])],
         "decisions": list(store.get("decisions") or []),
         "disclosive_fields": sorted(DISCLOSIVE_FIELDS),
@@ -1920,6 +2174,75 @@ def export_consents(store_data):
     return [record for record in (store_data.get("decisions") or [])
             if record.get("kind") == EXPORT_CONSENT_KIND]
 
+
+# --------------------------------------------------------------------------
+# Decisions and assumptions a person made (P-0001-T78). Until 17 September they
+# lived inside a task's outcome text, where nothing could list them, tell a live
+# one from a replaced one, or show them on a screen. Each is now its own record
+# in decisions/YYYY-MM.jsonl: ONE proposition (the decision_owed rule), who,
+# when it was said, the basis, any condition, what it applies to, and the `at`
+# of the record it supersedes. Append-only: a changed mind is a new record that
+# supersedes the old one, never an edit. No ref, for the reason given above.
+# --------------------------------------------------------------------------
+
+DECISION_KIND = "Decision"
+DECISION_TYPES = ("decision", "assumption")
+
+
+def one_proposition(text, what="a decision"):
+    """The decision_owed rule, reused: one thing to accept, never a choice."""
+    text = " ".join(str(text or "").split())
+    if not text:
+        raise StoreError(f"{what} with no text is not {what}.")
+    for word in (" or ", " whether "):
+        if word in f" {text.lower()} ":
+            raise StoreError(
+                f"{what} containing {word.strip()!r} is a CHOICE. Record ONE proposition; "
+                f"if the alternative is real work, it is its own decision.")
+    return text
+
+
+def decision_record(proposition, by, basis, applies_to, condition=None, supersedes=None,
+                    task_ref=None, decided_on=None, kind="decision", at=None, existing=()):
+    """Build a Decision record, refusing before anything is written."""
+    if kind not in DECISION_TYPES:
+        raise StoreError(f"a decision's type is one of {', '.join(DECISION_TYPES)}, not {kind!r}.")
+    proposition = one_proposition(proposition, f"a {kind}")
+    missing = [name for name, value in (("--decided-by", by), ("--basis", basis),
+                                        ("--applies-to", applies_to)) if not str(value or "").strip()]
+    if missing:
+        raise StoreError(f"a {kind} is recorded with who, why and what it covers: "
+                         f"missing {', '.join(missing)}.")
+    # Milliseconds, because `at` is how a later record names the one it replaces,
+    # and two decisions recorded in one second would otherwise share a name.
+    at = at or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    if decided_on and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", decided_on):
+        raise StoreError(f"--decided-on is a date, YYYY-MM-DD, not {decided_on!r}.")
+    made = [r for r in existing if r.get("kind") == DECISION_KIND]
+    if any(r.get("at") == at for r in made):
+        raise StoreError(f"a decision is already recorded at {at}; record this one again.")
+    if supersedes:
+        if not any(r.get("at") == supersedes for r in made):
+            raise StoreError(f"--supersedes {supersedes}: no decision was recorded at that moment.")
+        if any(r.get("supersedes") == supersedes for r in made):
+            raise StoreError(f"--supersedes {supersedes}: that decision is already superseded. "
+                             f"Supersede the one that replaced it.")
+    return {"kind": DECISION_KIND, "at": at, "type": kind, "proposition": proposition,
+            "by": str(by).strip(), "decided_on": decided_on or at[:10],
+            "decision_basis": " ".join(str(basis).split()),
+            "decision_condition": " ".join(str(condition).split()) if condition else None,
+            "applies_to": " ".join(str(applies_to).split()),
+            "task_ref": task_ref, "supersedes": supersedes}
+
+
+def decisions_made(store_data):
+    """Every Decision, oldest first, each saying whether a later one replaced it."""
+    made = [dict(r) for r in (store_data.get("decisions") or []) if r.get("kind") == DECISION_KIND]
+    replaced = {r["supersedes"]: r["at"] for r in made if r.get("supersedes")}
+    for record in made:
+        record["replaced_at"] = replaced.get(record["at"])
+    return made
+
 # --------------------------------------------------------------------------
 # CLI
 # --------------------------------------------------------------------------
@@ -1967,6 +2290,32 @@ def parse_args(argv=None):
     parser.add_argument("--text", help="the outcome entry, in words. One "
                                        "paragraph: front matter is one line per "
                                        "field, and a chapter belongs in a document.")
+    parser.add_argument("--text-file", metavar="PATH",
+                        help="read --text from this file instead, so a long entry never "
+                             "sits inline in a command. Surrounding whitespace is dropped.")
+    parser.add_argument("--handoff", metavar="REF",
+                        help="save the next session's starting text for this task from "
+                             "--text or --text-file, then rebuild the Board (P-0001-T67)")
+    parser.add_argument("--consume-handoff", metavar="REF",
+                        help="clear the pointer to a handoff that has run, keep its file, "
+                             "and rebuild the Board")
+    parser.add_argument("--by", help="with --handoff: which session wrote it")
+    parser.add_argument("--record-decision", action="store_true",
+                        help="record a person's decision (P-0001-T78): ONE proposition in "
+                             "--text or --text-file, with --decided-by, --basis and "
+                             "--applies-to. Append-only; a changed mind supersedes.")
+    parser.add_argument("--assumption", action="store_true",
+                        help="with --record-decision: this is an assumption, not a decision")
+    parser.add_argument("--decided-by", help="who decided")
+    parser.add_argument("--decided-on", help="the day it was said, YYYY-MM-DD; default today")
+    parser.add_argument("--basis", help="why: what it was decided on")
+    parser.add_argument("--condition", help="what it holds only while, if anything")
+    parser.add_argument("--applies-to", help="what it covers")
+    parser.add_argument("--supersedes", metavar="AT",
+                        help="the `at` of the earlier decision this one replaces")
+    parser.add_argument("--for-task", metavar="REF", help="the task it was made under")
+    parser.add_argument("--list-decisions", action="store_true",
+                        help="every recorded decision and assumption, marking replaced ones")
     parser.add_argument("--owed", action="store_true",
                         help="what is waiting on a person: every task carrying "
                              "a decision_owed, with the sentence that says what "
@@ -2130,6 +2479,108 @@ def _do_owe(args, store_data, register, say):
         say(f"owed     {ref}  {updated['decision_owed']}")
     if warning:
         say(f"  NOTE   {warning}")
+    return 0
+
+
+def rebuild_board(root, say, run=None):
+    """P-0001-T67: saving or consuming a handoff rebuilds the Board's data itself,
+    because a close that skipped the rebuild told the owner "done" over an old
+    screen, more than once. A folder with no Board (the published package, a test
+    fixture) says so and carries on."""
+    dashboard = Path(root) / "ledger" / "dashboard.py"
+    if not dashboard.exists():
+        say("board    no Board in this folder, so nothing to rebuild.")
+        return None
+    import subprocess
+    run = run or subprocess.run
+    done = run([sys.executable, str(dashboard)], cwd=str(root), capture_output=True, text=True)
+    if done.returncode == 0:
+        say("board    rebuilt. Open http://127.0.0.1:8770/ to see it.")
+    else:
+        tail = (done.stdout + done.stderr).strip().splitlines()[-3:]
+        say("board    NOT REBUILT -- the handoff is saved, the screen is not current:")
+        for line in tail:
+            say(f"  {line}")
+    return done.returncode
+
+
+def _do_handoff(args, store_data, register, root, say):
+    """Save the next session's starting text (or consume one) and rebuild the Board."""
+    ref = register.resolve(args.handoff or args.consume_handoff)
+    if ref not in store_data["tasks"]:
+        say(f"REFUSED  {ref}: not in the store.")
+        return 1
+    record = store_data["tasks"][ref]
+    try:
+        if args.handoff:
+            updated = set_invocation(record["fields"], args.text, root=root, by=args.by)
+        else:
+            if not record["fields"].get("invocation_path"):
+                say(f"REFUSED  {ref} has no handoff to consume.")
+                return 1
+            # The file stays on disk as history; only the pointer goes, so the
+            # Board stops offering a session that has already run.
+            updated = dict(record["fields"], invocation_path=None)
+    except StoreError as problem:
+        say(f"REFUSED  {problem}")
+        return 1
+    try:
+        write_task_record(Path(record["path"]), updated, record["body"])
+    except AppendOnlyViolation as violation:
+        say(f"REFUSED  {ref}: {violation}")
+        return 1
+    if args.handoff:
+        say(f"handoff  {ref} -> {updated['invocation_path']}")
+    else:
+        say(f"consumed {ref}; its handoff file stays on disk as history")
+    rebuild_board(root, say)
+    return 0
+
+
+def _do_record_decision(args, store_data, register, root, say):
+    """Append one Decision record (P-0001-T78)."""
+    task_ref = None
+    if args.for_task:
+        task_ref = register.resolve(args.for_task)
+        if task_ref not in store_data["tasks"]:
+            say(f"REFUSED  {args.for_task}: not in the store.")
+            return 1
+    try:
+        record = decision_record(args.text, args.decided_by, args.basis, args.applies_to,
+                                 condition=args.condition, supersedes=args.supersedes,
+                                 task_ref=task_ref, decided_on=args.decided_on,
+                                 kind="assumption" if args.assumption else "decision",
+                                 existing=store_data.get("decisions") or [])
+    except StoreError as problem:
+        say(f"REFUSED  {problem}")
+        return 1
+    if args.dry_run:
+        say(f"would record {record['type']}  {record['proposition']}")
+        say("Dry run. Nothing was written.")
+        return 0
+    append_decisions([record], root / "decisions")
+    say(f"recorded {record['type']}  {record['at']}  by {record['by']}")
+    say(f"  {record['proposition']}")
+    if record["supersedes"]:
+        say(f"  replaces the decision recorded at {record['supersedes']}")
+    return 0
+
+
+def _do_list_decisions(store_data, say):
+    made = decisions_made(store_data)
+    if not made:
+        say("No decisions recorded with --record-decision yet.")
+        return 0
+    for r in made:
+        mark = f"REPLACED at {r['replaced_at']}" if r["replaced_at"] else "stands"
+        say(f"{r['at']}  {r['type']:<10}  {mark}")
+        say(f"  {r['proposition']}")
+        say(f"  by {r['by']} on {r['decided_on']}; applies to {r['applies_to']}")
+        say(f"  basis: {r['decision_basis']}")
+        if r.get("decision_condition"):
+            say(f"  holds while: {r['decision_condition']}")
+        if r.get("task_ref"):
+            say(f"  under {r['task_ref']}")
     return 0
 
 
@@ -2320,6 +2771,33 @@ def main(argv=None, out=None):
     if args.owed:
         return _do_owed(store, say)
 
+    if args.text_file:
+        # A long entry inline fills the permission dialog with a wall of text he
+        # cannot judge (CLAUDE.md, 11 September), so it comes from a file (P-0001-T79).
+        if args.text:
+            say("REFUSED  give --text or --text-file, not both.")
+            return 1
+        try:
+            args.text = Path(args.text_file).read_text(encoding="utf-8").strip()
+        except OSError as problem:
+            say(f"REFUSED  --text-file could not be read: {problem}")
+            return 1
+        if not args.text:
+            say(f"REFUSED  --text-file {args.text_file} is empty.")
+            return 1
+
+    if args.handoff or args.consume_handoff:
+        if args.handoff and not args.text:
+            say("--text or --text-file is required: a handoff is the next session's starting text.")
+            return 1
+        return _do_handoff(args, store, register, root, say)
+
+    if args.record_decision:
+        return _do_record_decision(args, store, register, root, say)
+
+    if args.list_decisions:
+        return _do_list_decisions(store, say)
+
     if args.owe:
         return _do_owe(args, store, register, say)
 
@@ -2341,6 +2819,9 @@ def main(argv=None, out=None):
                 f"${record['to_cost_usd']:.2f}  ({', '.join(record['changed'])})")
         if report["backfilled"]:
             say(f"backfilled {len(report['backfilled'])}  (session records added as new records)")
+        if report["held"]:
+            say(f"held       {len(report['held'])}  (still moving: no later session has started, "
+                f"so nothing permanent is written yet)")
         say(f"unchanged  {len(report['unchanged'])}")
         if args.dry_run:
             say("Dry run. Nothing was written.")

@@ -8,6 +8,7 @@ __pycache__/
 ledger/runs.json
 runs/
 store/refs.json
+decisions/
 
 # Written by `reckon usage --paste`, and hand-taken copies of the desktop app's usage file.
 ledger/plan-usage-observations.jsonl

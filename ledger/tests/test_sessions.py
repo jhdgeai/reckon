@@ -324,5 +324,99 @@ class Accounts(unittest.TestCase):
         self.assertIsNone(sessions.account_for([{"type": "user"}], labels, None)[0])
 
 
+class TestTheDesktopSignInNamesAnUnlabelledSession(unittest.TestCase):
+    """17 September 2026: 12 of September's runs named no account, because Claude
+    Code writes the owner only while Remote Control is on. The desktop app's usage
+    history names the signed-in account every ~15 minutes, keyed by organisation."""
+
+    LABELS = {"aaa": "account-1", "zzz": "account-2"}
+    BARE = [{"type": "user", "timestamp": "2026-09-16T10:05:00Z"}]
+
+    def account(self, desktop, records=None, ended="2026-09-16T10:20:00Z"):
+        return sessions.account_for(records or self.BARE, self.LABELS, "2026-09-16T10:05:00Z",
+                                    desktop=desktop, ended_at=ended)
+
+    def test_one_account_over_the_span_names_it_and_says_it_is_the_second_source(self):
+        account, basis = self.account([("2026-09-16T09:57:00Z", "account-2"),
+                                       ("2026-09-16T10:12:00Z", "account-2")])
+        self.assertEqual(account, "account-2")
+        self.assertIn("desktop app's sign-in", basis)
+        self.assertIn("Remote Control", basis)
+
+    def test_two_accounts_over_the_span_is_not_guessed(self):
+        account, basis = self.account([("2026-09-16T09:57:00Z", "account-1"),
+                                       ("2026-09-16T10:12:00Z", "account-2")])
+        self.assertIsNone(account)
+        self.assertIn("more than one account", basis)
+
+    def test_an_organisation_no_transcript_names_is_not_an_answer(self):
+        self.assertIsNone(self.account([("2026-09-16T10:00:00Z", None)])[0])
+
+    def test_no_sample_over_the_span_says_so(self):
+        account, basis = self.account([("2026-09-16T08:00:00Z", "account-2")])
+        self.assertIsNone(account)
+        self.assertIn("no sample", basis)
+
+    def test_the_transcript_wins_where_it_names_the_owner(self):
+        records = [{"type": "bridge-session", "ownerAccountUuid": "aaa"}]
+        self.assertEqual(self.account([("2026-09-16T10:00:00Z", "account-2")], records)[0],
+                         "account-1")
+
+    def test_the_join_is_by_hashed_organisation_and_never_holds_the_id(self):
+        records = [[{"type": "bridge-session", "ownerAccountUuid": "aaa",
+                     "ownerOrganizationUuid": "org-1"}]]
+        joined = sessions.org_labels(records, self.LABELS, lambda org: "h:" + org[::-1])
+        self.assertEqual(joined, {"h:1-gro": "account-1"})
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+class WhatCountsAsFinished(unittest.TestCase):
+    """P-0001-T64, 17 September 2026. Until today only an outcome counted, so a
+    session that wrote the next brief and committed was recorded as an ending
+    nobody could name. Absence of one command was read as absence of a close."""
+
+    @staticmethod
+    def _transcript(command):
+        return [
+            {"type": "user", "timestamp": "2026-09-17T10:00:00Z",
+             "message": {"content": [{"type": "text", "text": "go"}]}},
+            {"type": "assistant", "timestamp": "2026-09-17T10:01:00Z",
+             "message": {"stop_reason": "end_turn", "content": [
+                 {"type": "tool_use", "name": "Bash", "input": {"command": command}}]}},
+        ]
+
+    def test_a_commit_is_a_close(self):
+        how, basis = sessions.ending(self._transcript("git commit -F /tmp/m.txt"))
+        self.assertEqual(how, "finished")
+        self.assertIn("committed its work", basis)
+
+    def test_a_handoff_is_a_close(self):
+        how, basis = sessions.ending(self._transcript("python3 store/store.py --handoff P-0001-T33 --text-file x"))
+        self.assertEqual(how, "finished")
+        self.assertIn("next session", basis)
+
+    def test_an_outcome_is_still_a_close(self):
+        how, basis = sessions.ending(self._transcript("python3 store/store.py --outcome P-0001-T33 --text x"))
+        self.assertEqual(how, "finished")
+        self.assertIn("recorded an outcome", basis)
+
+    def test_saying_it_finished_is_not_finishing(self):
+        records = [
+            {"type": "user", "timestamp": "2026-09-17T10:00:00Z",
+             "message": {"content": [{"type": "text", "text": "go"}]}},
+            {"type": "assistant", "timestamp": "2026-09-17T10:01:00Z",
+             "message": {"stop_reason": "end_turn", "content": [
+                 {"type": "text", "text": "I committed the work and wrote the handoff."}]}},
+        ]
+        how, basis = sessions.ending(records)
+        self.assertEqual(how, "unknown")
+        self.assertIn("none of the closing acts", basis)
+
+    def test_closing_at_the_ceiling_keeps_the_ceiling_in_the_basis(self):
+        how, basis = sessions.ending(self._transcript("git commit -m x"),
+                                     assistant_messages=180, ceiling_messages=180)
+        self.assertEqual(how, "finished")
+        self.assertIn("message ceiling", basis)

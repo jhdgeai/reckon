@@ -54,7 +54,34 @@ def run(source=None, session=None, root=None, out=None):
     ledger_path = root / "ledger" / "runs.json"
     ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
     ledger_runs = ledger["runs"] if isinstance(ledger, dict) else ledger
-    records, report = store.ingest_runs(ledger_runs, register, existing)
+    decisions = store.read_decisions(root / "decisions")
+    observed = store.observe_preferences(decisions)
+    if observed:
+        store.append_decisions(observed, root / "decisions")
+        decisions = list(decisions) + list(observed)
+        print(f"preferences {len(observed)} fingerprint(s) recorded (changed since the last)",
+              file=out)
+    # The desktop app's own record of the same session (P-0001-T52). It is read
+    # from `ledger/app_sessions.py`, which the shareable package does not ship:
+    # it reads the Claude desktop app's files on THIS Mac. Where it is not
+    # there, recording carries on without it and every new Run says so in its
+    # own `why` -- the same sentence a session the app has no record of gets.
+    # Before 17 September this raised FileNotFoundError out of `reckon record`,
+    # which is how the package's own suite found it.
+    app_sessions_mod = None
+    try:
+        from ledger import app_sessions as app_sessions_mod
+    except ImportError:                      # pragma: no cover - layout fallback
+        import importlib.util
+        module_path = root / "ledger" / "app_sessions.py"
+        if module_path.exists():
+            spec = importlib.util.spec_from_file_location("app_sessions", module_path)
+            app_sessions_mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(app_sessions_mod)
+    seen_sessions = app_sessions_mod.by_cli_session() if app_sessions_mod else {}
+    records, report = store.ingest_runs(ledger_runs, register, existing,
+                                        preferences=decisions,
+                                        app_sessions=seen_sessions)
 
     print(file=out)
     for record in report["new"]:
@@ -66,6 +93,9 @@ def run(source=None, session=None, root=None, out=None):
     if report.get("backfilled"):
         print(f"backfilled {len(report['backfilled'])}  (session records added to runs "
               f"written before they existed; new records, nothing edited)", file=out)
+    if report.get("held"):
+        print(f"held       {len(report['held'])}  (still moving: no later session has "
+              f"started, so nothing permanent is written for it yet)", file=out)
     print(f"unchanged  {len(report['unchanged'])}", file=out)
 
     by_file = {}

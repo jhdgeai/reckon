@@ -146,35 +146,50 @@ ASK. Nothing was run. Answer the points above, then re-run with --execute once t
 ## `reckon record`
 
 Turns Claude Code transcripts into Run records, then adds them to the store. Run here against
-`sample/session/`, which ships one invented session -- not a real transcript -- so there is
+`sample/session/`, which ships two invented sessions -- not real transcripts -- so there is
 something to record on a fresh install.
 
-`reckon record` writes into the folder you downloaded: `ledger/runs.json`, `runs/` and
-`store/refs.json`, because Reckon keeps its data beside its code. Those are listed in `.gitignore`,
-with `.venv/` and the install's own files, so `git status` stays empty.
+`reckon record` writes into the folder you downloaded: `ledger/runs.json`, `runs/`,
+`store/refs.json` and `decisions/`, because Reckon keeps its data beside its code. Those are listed
+in `.gitignore`, with `.venv/` and the install's own files, so `git status` stays empty.
 
 ```
 $ reckon record --source sample/session
 Source: explicit --source — sample/session
-1 run(s), 1 output(s), $0.01 total at list rates (client-side estimate, not a bill).
+2 run(s), 1 output(s), $<total> total at list rates (client-side estimate, not a bill).
 
 run         started           project                  cost $  out  task
 ------------------------------------------------------------------------------
 R-10203040  2026-09-01 10:00  reckon-sample              0.01    1  —
+R-20304050  2026-09-02 09:00  reckon-sample              <cost>    0  —
 
 NOTE: 1 recorded output(s) no longer exist on disk. They are kept as records with sha256 and bytes null, not dropped.
-NOTE: 1 of 1 runs have no task ref. task_ref is null rather than guessed; add the link in ledger/run-tasks.json.
-NOTE: 1 of 1 runs take the default rail with no matching rule in rails.json.
+NOTE: 2 of 2 runs have no task ref. task_ref is null rather than guessed; add the link in ledger/run-tasks.json.
+NOTE: 2 of 2 runs take the default rail with no matching rule in rails.json.
 
 -> <your reckon folder>/ledger/runs.json
+preferences 1 fingerprint(s) recorded (changed since the last)
 
 new        R-0001  10203040  $0.01
+held       1  (still moving: no later session has started, so nothing permanent is written for it yet)
 unchanged  0
 -> appended 1 to <your reckon folder>/runs/2026-09.jsonl
 ```
 
-The first note is expected here: the invented session names a file it wrote, and that file was not
-on this computer, so the record keeps the file's name and leaves its size and fingerprint empty.
+Three lines here are worth a word.
+
+- **`held 1`.** A session is written to the store only once a later session has started, because
+  that is the only sure sign it has finished: a session can sit quiet for hours and carry on, so
+  Reckon does not decide one is over because it has gone quiet. The first invented session has a
+  later one after it, so it is written as `R-0001`. The second has nothing after it yet, so it is
+  held, and the first `reckon record` after your next session starts writes it in, once, with its
+  final figure. On your own computer the session you are in right now will usually be the held one.
+- **`preferences`.** Reckon records a fingerprint (a checksum, not the content) of your personal
+  Claude Code instructions file, `~/.claude/CLAUDE.md`, so each run can say which version it was
+  given. The first recording always prints this line: if you have no such file, what is recorded is
+  that it was not there. After that the line appears only when the file changes.
+- **The first note.** The first invented session names a file it wrote, and that file was not
+  on this computer, so the record keeps the file's name and leaves its size and fingerprint empty.
 
 ## `reckon report`
 
@@ -189,6 +204,11 @@ Every figure here is a client-side estimate at list rates, from the task's own r
 
 Tasks more than 10% over their estimate:
   P-0001-T10     estimate $14.00   recorded $30.13   (+115%)
+
+The last 7 days, <dates>:
+  Claude Code, measured: <how many> session(s), $<their total> at list rates.
+  The account meter: the sample carries no meter readings.
+  This register sees Claude Code only. Chat in the desktop app, on the web and on a phone draws on the same limits and leaves no transcript here, so the measured cost is a floor on what the account used; the meter is the whole account, and it is not a bill.
 ```
 
 ## `reckon usage`
@@ -229,7 +249,17 @@ Every figure here is a client-side estimate at list rates, from the task's own r
 
 No tasks in this store yet, so there is no estimate to compare a recorded cost with.
 Runs recorded: <how many>, $<their total> at list rates.
+
+The last 7 days, <dates>:
+  Claude Code, measured: <how many> session(s), $<their total> at list rates.
+  The account meter: <what it found>
+  <in some weeks, a line saying the weekly limit changed inside these seven days>
+  This register sees Claude Code only. Chat in the desktop app, on the web and on a phone draws on the same limits and leaves no transcript here, so the measured cost is a floor on what the account used; the meter is the whole account, and it is not a bill.
 ```
+
+The line in angle brackets on its own appears only in some weeks: when Anthropic changed the
+weekly limit inside the seven days shown, the report says so, because percentages either side
+of the change are of two different limits.
 
 The list of tasks over their estimate needs task records linked to runs, which this version does
 not create for you; the sample above shows what that list looks like.
